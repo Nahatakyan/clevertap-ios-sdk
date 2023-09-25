@@ -747,17 +747,6 @@ static NSMutableArray<CTInAppDisplayViewController*> *pendingNotificationControl
     [_plistInfo setCredentialsWithAccountID:accountID token:token region:region];
 }
 
-+ (void)_setCredentialsWithAccountID:(NSString *)accountID token:(NSString *)token proxyDomain:(NSString *)proxyDomain {
-    [self _setCredentialsWithAccountID:accountID token:token];
-    
-    if (proxyDomain != nil && ![proxyDomain isEqualToString:@""]) {
-        proxyDomain = [proxyDomain stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (proxyDomain.length <= 0) {
-            proxyDomain = nil;
-        }
-    }
-}
-
 + (void)_setCredentialsWithAccountID:(NSString *)accountID token:(NSString *)token {
     @try {
         [instanceLock lock];
@@ -770,6 +759,21 @@ static NSMutableArray<CTInAppDisplayViewController*> *pendingNotificationControl
     } @finally {
         [instanceLock unlock];
     }
+}
+
++ (void)_setCredentialsWithAccountID:(NSString *)accountID token:(NSString *)token proxyDomain:(NSString *)proxyDomain spikyProxyDomain:(NSString *)spikyProxyDomain {
+    if (_defaultInstanceConfig) {
+        CleverTapLogStaticDebug(@"CleverTap SDK already initialized with accountID: %@ and token: %@. Cannot change credentials to %@ : %@", _defaultInstanceConfig.accountId, _defaultInstanceConfig.accountToken, accountID, token);
+        return;
+    }
+    NSString *finalSpikyProxyDomain;
+    if (spikyProxyDomain != nil && ![spikyProxyDomain isEqualToString:@""]) {
+        finalSpikyProxyDomain = [spikyProxyDomain stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (finalSpikyProxyDomain.length <= 0) {
+            finalSpikyProxyDomain = nil;
+        }
+    }
+    [_plistInfo setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain spikyProxyDomain:finalSpikyProxyDomain];
 }
 
 + (void)runSyncMainQueue:(void (^)(void))block {
@@ -3948,21 +3952,11 @@ static NSMutableArray<CTInAppDisplayViewController*> *pendingNotificationControl
 }
 
 + (void)setCredentialsWithAccountID:(NSString *)accountID token:(NSString *)token proxyDomain:(NSString *)proxyDomain {
-    [self _setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain];
-    [_plistInfo setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain];
+    [self _setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain spikyProxyDomain:nil];
 }
 
 + (void)setCredentialsWithAccountID:(NSString *)accountID token:(NSString *)token proxyDomain:(NSString *)proxyDomain spikyProxyDomain:(NSString *)spikyProxyDomain {
-    [self _setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain];
-    
-    NSString *finalSpikyProxyDomain;
-    if (spikyProxyDomain != nil && ![spikyProxyDomain isEqualToString:@""]) {
-        finalSpikyProxyDomain = [spikyProxyDomain stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (finalSpikyProxyDomain.length <= 0) {
-            finalSpikyProxyDomain = nil;
-        }
-    }
-    [_plistInfo setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain spikyProxyDomain:finalSpikyProxyDomain];
+    [self _setCredentialsWithAccountID:accountID token:token proxyDomain:proxyDomain spikyProxyDomain:spikyProxyDomain];
 }
 
 + (void)enablePersonalization {
