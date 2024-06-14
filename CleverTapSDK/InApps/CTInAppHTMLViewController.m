@@ -264,14 +264,17 @@ typedef enum {
 }
 
 - (BOOL)isInlineMedia:(NSURL *)url {
-    NSURLComponents *urlComponents = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
-    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"name=%@", @"playsinline"];
-    NSArray *queryItems = urlComponents.queryItems;
-    if ([queryItems count] == 0) return NO;
-    NSURLQueryItem *queryItem = [[queryItems filteredArrayUsingPredicate:predicate] firstObject];
-    NSString *value = queryItem.value;
-    return value.boolValue;
-    return NO;
+    if (@available(iOS 16.0, *)) {
+        NSURLComponents *urlComponents = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+        NSPredicate *predicate = [NSPredicate predicateWithFormat:@"name=%@", @"playsinline"];
+        NSArray *queryItems = urlComponents.queryItems;
+        if ([queryItems count] == 0) return NO;
+        NSURLQueryItem *queryItem = [[queryItems filteredArrayUsingPredicate:predicate] firstObject];
+        NSString *value = queryItem.value;
+        return value.boolValue;
+    } else {
+        return NO;
+    }
 }
 
 - (void)panGestureHandle:(UIPanGestureRecognizer *)recognizer {
