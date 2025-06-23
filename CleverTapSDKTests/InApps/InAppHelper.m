@@ -15,7 +15,7 @@
 #import "CleverTapInstanceConfig.h"
 #import "CTInAppFCManager.h"
 #import "CTInAppTriggerManager.h"
-#import "CTInAppImagePrefetchManager.h"
+#import "CTFileDownloader.h"
 
 NSString *const CLTAP_TEST_ACCOUNT_ID = @"testAccountId";
 NSString *const CLTAP_TEST_ACCOUNT_TOKEN = @"testAccountToken";
@@ -47,7 +47,7 @@ NSString *const CLTAP_TEST_CAMPAIGN_ID = @"testCampaignId";
         
         self.config = [[CleverTapInstanceConfig alloc] initWithAccountId:self.accountId accountToken:self.accountToken];
         
-        self.imagePrefetchManager = [[CTInAppImagePrefetchManager alloc] initWithConfig:self.config];
+        self.fileDownloader = [[CTFileDownloader alloc] initWithConfig:self.config];
         
         self.impressionManager = [[CTImpressionManager alloc] initWithAccountId:self.accountId
                                                                        deviceId:self.deviceId
@@ -55,7 +55,6 @@ NSString *const CLTAP_TEST_CAMPAIGN_ID = @"testCampaignId";
         
         self.inAppStore = [[CTInAppStore alloc] initWithConfig:self.config
                                                delegateManager:self.delegateManager
-                                          imagePrefetchManager:self.imagePrefetchManager
                                                       deviceId:self.deviceId];
         
         self.inAppTriggerManager = [[CTInAppTriggerManager alloc] initWithAccountId:self.accountId
@@ -67,6 +66,10 @@ NSString *const CLTAP_TEST_CAMPAIGN_ID = @"testCampaignId";
                                                               deviceId:self.deviceId
                                                      impressionManager:self.impressionManager
                                                    inAppTriggerManager:self.inAppTriggerManager];
+        
+        CTDeviceInfo *deviceInfo = [[CTDeviceInfo alloc] initWithConfig:self.config andCleverTapID:CLTAP_TEST_DEVICE_ID];
+        CTDispatchQueueManager *queueManager = [[CTDispatchQueueManager alloc] initWithConfig:self.config];
+        self.dataStore = [[CTLocalDataStore alloc] initWithConfig:self.config profileValues:[NSMutableDictionary new] andDeviceInfo:deviceInfo dispatchQueueManager:queueManager];
         
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnonnull"
@@ -80,7 +83,7 @@ NSString *const CLTAP_TEST_CAMPAIGN_ID = @"testCampaignId";
                                                                         impressionManager:self.impressionManager
                                                                       inAppDisplayManager:self.inAppDisplayManager
                                                                                inAppStore:self.inAppStore
-                                                                      inAppTriggerManager:self.inAppTriggerManager];
+                                                                      inAppTriggerManager:self.inAppTriggerManager localDataStore:self.dataStore];
     }
     return self;
 }

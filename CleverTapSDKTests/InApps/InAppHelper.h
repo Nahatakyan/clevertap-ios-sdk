@@ -15,7 +15,8 @@
 @class CleverTapInstanceConfig;
 @class CTMultiDelegateManager;
 @class CTInAppTriggerManager;
-@class CTInAppImagePrefetchManager;
+@class CTFileDownloader;
+@class CTLocalDataStore;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -34,7 +35,8 @@ extern NSString *const CLTAP_TEST_CAMPAIGN_ID;
 @property (nonatomic, strong) CTImpressionManager *impressionManager;
 @property (nonatomic, strong) CTInAppStore *inAppStore;
 @property (nonatomic, strong) CTInAppTriggerManager *inAppTriggerManager;
-@property (nonatomic, strong) CTInAppImagePrefetchManager *imagePrefetchManager;
+@property (nonatomic, strong) CTFileDownloader *fileDownloader;
+@property (nonatomic, strong) CTLocalDataStore *dataStore;
 
 - (NSString *)accountId;
 - (NSString *)accountToken;

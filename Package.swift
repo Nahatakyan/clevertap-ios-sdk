@@ -10,67 +10,23 @@ let package = Package(
     products: [
         .library(
             name: "CleverTapSDK",
-            targets: ["CleverTapSDK"]),
+            targets: ["CleverTapSDKWrapper"]),
         .library(
             name: "CleverTapLocation",
             targets: ["CleverTapLocation"]
         )
     ],
-    dependencies: [
-        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.11.1")
-    ],
+    dependencies: [],
     targets: [
-        .target(
+        .binaryTarget(
+            name: "SDWebImage",
+            url: "https://github.com/SDWebImage/SDWebImage/releases/download/5.21.0/SDWebImage-dynamic.xcframework.zip",
+            checksum: "e034ea04f5e86866bc3081d009941bd5b2a2ed705b3a06336656484514116638"
+        ),
+        .binaryTarget(
             name: "CleverTapSDK",
-            dependencies: ["SDWebImage"],
-            path: "CleverTapSDK",
-            exclude: [
-                "Info.plist",
-                "tvOS-Info.plist"
-            ],
-            resources: [
-                .copy("AmazonRootCA1.cer"),
-                .copy("PrivacyInfo.xcprivacy"),
-                .process("InApps/resources"),
-                .process("Inbox/resources")
-            ],
-            publicHeadersPath: "include",
-            cSettings: [
-                .headerSearchPath("./"),
-                .headerSearchPath("DisplayUnit/"),
-                .headerSearchPath("DisplayUnit/models"),
-                .headerSearchPath("DisplayUnit/controllers"),
-                .headerSearchPath("FeatureFlags/"),
-                .headerSearchPath("FeatureFlags/models"),
-                .headerSearchPath("FeatureFlags/controllers"),
-                .headerSearchPath("ProductConfig/"),
-                .headerSearchPath("ProductConfig/models"),
-                .headerSearchPath("ProductConfig/controllers"),
-                .headerSearchPath("InApps/"),
-                .headerSearchPath("InApps/Matchers/"),
-                .headerSearchPath("Inbox/"),
-                .headerSearchPath("Inbox/cells"),
-                .headerSearchPath("Inbox/config"),
-                .headerSearchPath("Inbox/controllers"),
-                .headerSearchPath("Inbox/models"),
-                .headerSearchPath("Inbox/views"),
-                .headerSearchPath("ProductExperiences/"),
-                .headerSearchPath("Session/"),
-                .headerSearchPath("Swizzling/")
-            ],
-            linkerSettings: [
-                .linkedFramework("AVFoundation"),
-                .linkedFramework("AVKit"),
-                .linkedFramework("CoreData"),
-                .linkedFramework("CoreServices"),
-                .linkedFramework("CoreTelephony", .when(platforms: [.iOS])),
-                .linkedFramework("ImageIO"),
-                .linkedFramework("QuartzCore"),
-                .linkedFramework("Security"),
-                .linkedFramework("SystemConfiguration"),
-                .linkedFramework("UserNotifications"),
-                .linkedFramework("WebKit")
-            ]
+            url: "https://d1new0xr8otir0.cloudfront.net/CleverTapSDK-7.2.0.xcframework.zip",
+            checksum: "50c88d641327513a948937031874fc082b626fa401a55815600e0b49cacd1479"
         ),
         .target(
             name: "CleverTapLocation",
@@ -84,7 +40,19 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("CoreLocation")
-                ]
+            ]
+        ),
+        .target(
+            name: "CleverTapSDKWrapper",
+            dependencies: [
+                "CleverTapSDK",
+                "SDWebImage"
+            ],
+            path: "CleverTapSDKWrapper",
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+                .linkedFramework("SDWebImage", .when(platforms: [.iOS]))
+            ]
         )
     ]
 )

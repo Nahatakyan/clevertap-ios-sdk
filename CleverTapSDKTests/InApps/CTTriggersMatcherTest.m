@@ -8,6 +8,7 @@
 
 #import <Foundation/Foundation.h>
 #import <XCTest/XCTest.h>
+#import <OCMock/OCMock.h>
 #import "CTTriggersMatcher.h"
 #import "CTEventAdapter.h"
 #import "CTTriggerEvaluator.h"
@@ -15,10 +16,18 @@
 #import "CTConstants.h"
 
 @interface CTTriggersMatcherTest : XCTestCase
-
+@property (nonatomic, strong) CTLocalDataStore *dataStore;
 @end
 
 @implementation CTTriggersMatcherTest
+
+- (void)setUp {
+    [super setUp];
+    CleverTapInstanceConfig *config = [[CleverTapInstanceConfig alloc] initWithAccountId:@"testAccount" accountToken:@"testToken" accountRegion:@"testRegion"];
+    CTDeviceInfo *deviceInfo = [[CTDeviceInfo alloc] initWithConfig:config andCleverTapID:@"testDeviceInfo"];
+    CTDispatchQueueManager *queueManager = [[CTDispatchQueueManager alloc] initWithConfig:config];
+    self.dataStore = [[CTLocalDataStore alloc] initWithConfig:config profileValues:[NSMutableDictionary new] andDeviceInfo:deviceInfo dispatchQueueManager:queueManager];
+}
 
 #pragma mark Event
 - (void)testMatchEventAllOperators {
@@ -73,7 +82,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @160,
@@ -96,7 +105,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -116,7 +125,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -140,10 +149,76 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL matchNoProps = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{}];
     XCTAssertFalse(matchNoProps);
+}
+
+- (void)testMatchEventWithNormalizedName {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"event1",
+            @"eventProperties": @[
+            ]
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"Event 1" eventProperties:@{
+        @"prop1": @"clevertap"
+    }];
+    XCTAssertTrue(match);
+}
+
+#pragma mark Profile Event
+
+- (void)testMatchProfileEvent {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"profile1 changed",
+            @"profileAttrName": @"profile1",
+            @"eventProperties": @[
+                @{
+                    @"propertyName": @"newValue",
+                    @"operator": @0,
+                    @"propertyValue": @150
+                },
+                @{
+                    @"propertyName": @"oldValue",
+                    @"operator": @1,
+                    @"propertyValue": @"Equals"
+                }
+            ]
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    
+    NSDictionary *eventProperties = @{
+        @"newValue": @160,
+        @"oldValue": @"Equals"
+    };
+    
+    CTEventAdapter *eventAdapter = [[CTEventAdapter alloc] initWithEventName:@"profile1_changed" profileAttrName:@"profile1" eventProperties:eventProperties andLocation:kCLLocationCoordinate2DInvalid];
+    BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:eventAdapter];
+    XCTAssertTrue(match);
+    
+    eventAdapter = [[CTEventAdapter alloc] initWithEventName:@"profile 1_changed" profileAttrName:@"profile 1" eventProperties:eventProperties andLocation:kCLLocationCoordinate2DInvalid];
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:eventAdapter];
+    XCTAssertTrue(match);
+    
+    eventAdapter = [[CTEventAdapter alloc] initWithEventName:@"Profile 1_changed" profileAttrName:@"Profile 1" eventProperties:eventProperties andLocation:kCLLocationCoordinate2DInvalid];
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:eventAdapter];
+    XCTAssertTrue(match);
+    
+    eventAdapter = [[CTEventAdapter alloc] initWithEventName:@"profile  1_changed" profileAttrName:@"profile  1" eventProperties:eventProperties andLocation:kCLLocationCoordinate2DInvalid];
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:eventAdapter];
+    XCTAssertTrue(match);
+    
+    eventAdapter = [[CTEventAdapter alloc] initWithEventName:@"Profile_1_changed" profileAttrName:@"Profile_1" eventProperties:eventProperties andLocation:kCLLocationCoordinate2DInvalid];
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:eventAdapter];
+    XCTAssertFalse(match);
 }
 
 #pragma mark Charged Event
@@ -167,7 +242,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{
         @"prop1": @150,
@@ -211,7 +286,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{
         @"prop1": @150,
@@ -271,7 +346,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{
         @"prop1": @150,
@@ -283,6 +358,44 @@
         @{
             @"product_name": @"product 2",
             @"price": @5.50
+        }
+    ]];
+    
+    XCTAssertTrue(match);
+}
+
+- (void)testMatchChargedEventItemArrayEqualsNormalized {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"Charged",
+            @"eventProperties": @[
+                @{
+                    @"propertyName": @"prop1",
+                    @"operator": @1,
+                    @"propertyValue": @150
+                }],
+            @"itemProperties": @[
+                @{
+                    @"propertyName": @"product name",
+                    @"operator": @1,
+                    @"propertyValue": @[@"product 1"]
+                },
+                @{
+                    @"propertyName": @"price",
+                    @"operator": @1,
+                    @"propertyValue": @[@5.99]
+                }]
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    
+    BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{
+        @"Prop 1": @150,
+    } items:@[
+        @{
+            @"ProductName": @"product 1",
+            @"Price": @5.99
         }
     ]];
     
@@ -308,7 +421,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{
         @"prop1": @150,
@@ -319,6 +432,32 @@
         },
         @{
             @"product_name": @"product 2",
+            @"price": @5.50
+        }
+    ]];
+    
+    XCTAssertTrue(match);
+}
+
+- (void)testMatchChargedEventItemArrayContainsNormalized {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"Charged",
+            @"eventProperties": @[],
+            @"itemProperties": @[
+                @{
+                    @"propertyName": @"product name",
+                    @"operator": @3,
+                    @"propertyValue": @[@"product 1", @"product 2"]
+                }]
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    
+    BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{} items:@[
+        @{
+            @"Product Name": @"product 1",
             @"price": @5.50
         }
     ]];
@@ -357,7 +496,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150,
@@ -388,7 +527,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @(YES),
@@ -434,7 +573,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"true",
@@ -463,7 +602,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @(YES),
@@ -497,7 +636,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150,
@@ -566,7 +705,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{} items:@[@{
         @"prop1": @"150",
@@ -613,7 +752,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150.950
@@ -645,7 +784,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@"test", @"test2"]
@@ -674,7 +813,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@"test"]
@@ -706,7 +845,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@"test", @150]
@@ -729,7 +868,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"test"
@@ -757,6 +896,56 @@
     XCTAssertFalse(match);
 }
 
+- (void)testMatchEqualsPropertyNameWithNormalization {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"event1",
+            @"eventProperties": @[
+                @{
+                    @"propertyName": @"prop1",
+                    @"operator": @1,
+                    @"propertyValue": @"test"
+                }
+            ]
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    
+    BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
+        @"prop 1": @"test"
+    }];
+    XCTAssertTrue(match);
+    
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
+        @"Prop  1": @"test"
+    }];
+    XCTAssertTrue(match);
+    
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"E vent1" eventProperties:@{
+        @"Prop  1": @"test"
+    }];
+    XCTAssertTrue(match);
+    
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
+        @"Prop.1": @"test"
+    }];
+    XCTAssertFalse(match);
+    
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
+        @"Prop  1": @"test1",
+        @"Prop1": @"test",
+    }];
+    XCTAssertFalse(match);
+    
+    match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
+        @"Prop1": @"test1",
+        @"prop 1": @"test2",
+        @"prop1": @"test",
+    }];
+    XCTAssertTrue(match);
+}
+
 - (void)testMatchEqualsExtectedNumberWithActualString {
     NSArray *whenTriggers = @[
         @{
@@ -771,7 +960,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"test"
@@ -793,7 +982,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150.99
@@ -816,7 +1005,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"150.99"
@@ -839,7 +1028,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@"test2", @"test3", @"test"]
@@ -862,7 +1051,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@3, @1, @2]
@@ -885,7 +1074,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150
@@ -906,7 +1095,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{} items:@[
         @{
@@ -940,7 +1129,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop2": @150
@@ -962,7 +1151,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{} items:@[
         @{
@@ -997,7 +1186,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @240
@@ -1024,7 +1213,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@241]
@@ -1053,7 +1242,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150
@@ -1081,7 +1270,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"-120"
@@ -1110,7 +1299,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"-120"
@@ -1156,7 +1345,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @240
@@ -1184,7 +1373,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"240"
@@ -1213,7 +1402,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @600
@@ -1259,7 +1448,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150
@@ -1312,7 +1501,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{} items:@[
         @{
@@ -1349,7 +1538,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150
@@ -1372,7 +1561,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @150
@@ -1396,7 +1585,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -1423,7 +1612,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"this is true"
@@ -1450,7 +1639,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"1234567"
@@ -1482,7 +1671,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -1505,7 +1694,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"123456"
@@ -1532,7 +1721,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -1555,7 +1744,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@"clevertap",@"test"]
@@ -1579,7 +1768,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -1612,7 +1801,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @[@"clevertap", @"yes"]
@@ -1635,7 +1824,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         @"prop1": @"clevertap"
@@ -1658,7 +1847,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         CLTAP_SDK_VERSION: @60000
@@ -1709,7 +1898,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{
         CLTAP_SDK_VERSION: @60000,
         CLTAP_APP_VERSION: @"6.0.0",
@@ -1747,7 +1936,7 @@
         }
     ];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"Notification Viewed" eventProperties:@{
         CLTAP_PROP_WZRK_ID: @"1701172437_20231128",
@@ -1779,7 +1968,7 @@
     
     CTEventAdapter *event = [[CTEventAdapter alloc] initWithEventName:@"event1" eventProperties:@{} andLocation:location1km];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:event];
     XCTAssertTrue(match);
@@ -1815,10 +2004,99 @@
     
     CTEventAdapter *event = [[CTEventAdapter alloc] initWithEventName:@"event1" eventProperties:@{@"prop1": @151} andLocation:location1km];
     
-    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] init];
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
     
     BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:event];
     XCTAssertFalse(match);
 }
 
+#pragma mark FirstTimeOnly
+
+- (void)testMatchEventWithFirstTimeOnly {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"event1",
+            @"firstTimeOnly": @YES
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
+    CTLocalDataStore *dataStoreMock = OCMPartialMock(self.dataStore);
+    id mockIsEventLoggedFirstTime = OCMStub([dataStoreMock isEventLoggedFirstTime:@"event1"]).andReturn(YES);
+    
+    BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers eventName:@"event1" eventProperties:@{}];
+    
+    XCTAssertTrue(match);
+    OCMVerify(mockIsEventLoggedFirstTime);
+}
+
+- (void)testMatchChargedEventWithFirstTimeOnly {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"Charged",
+            @"firstTimeOnly": @YES,
+            @"eventProperties": @[
+                @{
+                    @"propertyName": @"prop1",
+                    @"operator": @1,
+                    @"propertyValue": @150
+                }],
+            @"itemProperties": @[
+                @{
+                    @"propertyName": @"product_name",
+                    @"operator": @1,
+                    @"propertyValue": @"product 1"
+                }]
+        }
+    ];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
+    
+    CTLocalDataStore *dataStoreMock = OCMPartialMock(self.dataStore);
+    id mockIsEventLoggedFirstTime = OCMStub([dataStoreMock isEventLoggedFirstTime:@"Charged"]).andReturn(YES);
+    BOOL match = [triggerMatcher matchChargedEventWhenTriggers:whenTriggers details:@{
+        @"prop1": @150,
+    } items:@[
+        @{
+            @"product_name": @"product 1",
+            @"price": @5.99
+        },
+        @{
+            @"product_name": @"product 2",
+            @"price": @5.50
+        }
+    ]];
+    XCTAssertTrue(match);
+    OCMVerify(mockIsEventLoggedFirstTime);
+}
+
+- (void)testMatchEventFirstTimeOnlyWithGeoRadius {
+    NSArray *whenTriggers = @[
+        @{
+            @"eventName": @"event1",
+            @"firstTimeOnly": @YES,
+            @"geoRadius": @[
+                @{
+                    @"lat": @19.07609,
+                    @"lng": @72.877426,
+                    @"rad": @2
+                }]
+        }
+    ];
+    
+    // Distance ~1.1km
+    CLLocationCoordinate2D location1km = CLLocationCoordinate2DMake(19.08609, 72.877426);
+    
+    CTEventAdapter *event = [[CTEventAdapter alloc] initWithEventName:@"event1" eventProperties:@{} andLocation:location1km];
+    
+    CTTriggersMatcher *triggerMatcher = [[CTTriggersMatcher alloc] initWithDataStore:self.dataStore];
+    CTLocalDataStore *dataStoreMock = OCMPartialMock(self.dataStore);
+    id mockIsEventLoggedFirstTime = OCMStub([dataStoreMock isEventLoggedFirstTime:@"event1"]).andReturn(YES);
+    
+    BOOL match = [triggerMatcher matchEventWhenTriggers:whenTriggers event:event];
+    XCTAssertTrue(match);
+}
+
 @end
+
+

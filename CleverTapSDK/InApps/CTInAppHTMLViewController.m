@@ -1,7 +1,7 @@
 #import <WebKit/WebKit.h>
 #import "CTInAppHTMLViewController.h"
 #import "CTInAppDisplayViewControllerPrivate.h"
-#import "CleverTapJSInterface.h"
+#import "CleverTapJSInterfacePrivate.h"
 #import "CTUIUtils.h"
 #import "CTDismissButton.h"
 #import "CTUriHelper.h"
@@ -44,10 +44,10 @@ typedef enum {
 
 @implementation CTInAppHTMLViewController
 
-- (instancetype)initWithNotification:(CTInAppNotification *)notification jsInterface:(CleverTapJSInterface *)jsInterface {
+- (instancetype)initWithNotification:(CTInAppNotification *)notification config:(CleverTapInstanceConfig *)config {
     self = [super initWithNotification:notification];
-    _jsInterface = jsInterface;
     if (self) {
+        _jsInterface = [[CleverTapJSInterface alloc] initWithConfigForInApps:config fromController:self];
         self.shouldPassThroughTouches = (self.notification.position == CLTAP_INAPP_POSITION_TOP || self.notification.position == CLTAP_INAPP_POSITION_BOTTOM);
     }
     return self;
@@ -77,6 +77,7 @@ typedef enum {
     WKUserScript *wkScript = [[WKUserScript alloc] initWithSource:js injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
     WKUserContentController *wkController = [[WKUserContentController alloc] init];
     [wkController addUserScript:wkScript];
+    [wkController addUserScript:_jsInterface.versionScript];
     [wkController addScriptMessageHandler:_jsInterface name:@"clevertap"];
     WKWebViewConfiguration *wkConfig = [[WKWebViewConfiguration alloc] init];
     wkConfig.userContentController = wkController;
@@ -89,6 +90,10 @@ typedef enum {
     webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:wkConfig];
     webView.scrollView.showsHorizontalScrollIndicator = NO;
     webView.scrollView.showsVerticalScrollIndicator = NO;
+    // Set translatesAutoresizingMaskIntoConstraints to NO to use Auto Layout
+    if ([self isInAppAdvancedBuilder]) {
+        webView.translatesAutoresizingMaskIntoConstraints = NO;
+    }
     webView.scrollView.scrollEnabled = NO;
     webView.backgroundColor = [UIColor clearColor];
     webView.opaque = NO;
@@ -106,12 +111,58 @@ typedef enum {
 
 - (void)loadWebView {
     CleverTapLogStaticInternal(@"%@: Loading the web view", [self class]);
+    
+    [self configureWebViewConstraints];
+    
     if (self.notification.url) {
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.notification.url]]];
         webView.navigationDelegate = nil;
     } else{
         [webView loadHTMLString:self.notification.html baseURL:nil];
     }
+    
+    if (self.notification.darkenScreen) {
+        self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75f];
+    }
+    
+    if ([self isInAppAdvancedBuilder]) {
+        [self configureViewAutoresizing];
+    } else {
+        [self updateWebView];
+    }
+}
+
+- (void)configureWebViewConstraints {
+    if (@available(iOS 11.0, *)) {
+        UILayoutGuide *safeArea = self.view.safeAreaLayoutGuide;
+        [NSLayoutConstraint activateConstraints:@[
+            // Use the safe area layout guide to position the view
+            [webView.topAnchor constraintEqualToAnchor: safeArea.topAnchor],
+            [webView.leadingAnchor constraintEqualToAnchor: safeArea.leadingAnchor],
+            [webView.trailingAnchor constraintEqualToAnchor: safeArea.trailingAnchor],
+            [webView.bottomAnchor constraintEqualToAnchor: safeArea.bottomAnchor]
+        ]];
+    } else {
+        // Fallback on earlier versions
+        [NSLayoutConstraint activateConstraints:@[
+            [webView.topAnchor constraintEqualToAnchor:self.topLayoutGuide.topAnchor],
+            [webView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+            [webView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+            [webView.bottomAnchor constraintEqualToAnchor:self.bottomLayoutGuide.bottomAnchor]
+        ]];
+    }
+}
+
+// Added to handle webview for Advanced Builder InApps
+- (void)configureViewAutoresizing {
+    webView.autoresizingMask = UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
+    
+    self.view.autoresizingMask = UIViewAutoresizingFlexibleBottomMargin |
+    UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleLeftMargin
+    | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
+}
+
+- (void)updateWebView {
     boolean_t fixedWidth = false, fixedHeight = false;
     
     CGSize size = CGSizeZero;
@@ -194,10 +245,6 @@ typedef enum {
     webView.frame = frame;
     _originalCenter = frame.origin.x + frame.size.width / 2.0f;
     
-    if (self.notification.darkenScreen) {
-        self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75f];
-    }
-    
     self.view.autoresizingMask = UIViewAutoresizingFlexibleBottomMargin |
     UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleLeftMargin
     | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
@@ -229,38 +276,21 @@ typedef enum {
         return;
     }
     
-    NSMutableDictionary *mutableParams = [NSMutableDictionary new];
     NSString *urlString = [navigationAction.request.URL absoluteString];
     NSURL *dl = [NSURL URLWithString:urlString];
+    NSMutableDictionary *mutableParams = [CTInAppUtils getParametersFromURL:urlString];
     
-    // Try to extract the parameters from the URL and overrite default dl if applicable
-    NSMutableDictionary *params = [[NSMutableDictionary alloc] init];
-    NSArray *comps = [urlString componentsSeparatedByString:@"?"];
-    if ([comps count] >= 2) {
-        NSString *query = comps[1];
-        for (NSString *param in [query componentsSeparatedByString:@"&"]) {
-            NSArray *elts = [param componentsSeparatedByString:@"="];
-            if ([elts count] < 2) continue;
-            params[elts[0]] = [elts[1] stringByRemovingPercentEncoding];
-        };
-        mutableParams = [params mutableCopy];
-        NSString *c2a = params[@"wzrk_c2a"];
-        if (c2a) {
-            c2a = [c2a stringByRemovingPercentEncoding];
-            NSArray *parts = [c2a componentsSeparatedByString:@"__dl__"];
-            if (parts && [parts count] == 2) {
-                dl = [NSURL URLWithString:parts[1]];
-                mutableParams[@"wzrk_c2a"] = parts[0];
-            }
-        }
+    // Use the url from the callToAction param to update action
+    if (mutableParams[@"deeplink"]) {
+        dl = mutableParams[@"deeplink"];
     }
-    if (self.delegate && [self.delegate respondsToSelector:@selector(handleNotificationCTA:buttonCustomExtras:forNotification:fromViewController:withExtras:)]) {
-        [self.delegate handleNotificationCTA:dl buttonCustomExtras:nil forNotification:self.notification fromViewController:self withExtras:mutableParams];
-    } else {
-        [self hide:YES];
+    
+    if (self.delegate && [self.delegate respondsToSelector:@selector(handleNotificationAction:forNotification:withExtras:)]) {
+        CTNotificationAction *action = [[CTNotificationAction alloc] initWithOpenURL:dl];
+        [self.delegate handleNotificationAction:action forNotification:self.notification withExtras:mutableParams[@"params"]];
     }
+    [self hide:YES];
     decisionHandler(WKNavigationActionPolicyCancel);
-    
 }
 
 - (BOOL)isInlineMedia:(NSURL *)url {
@@ -359,6 +389,26 @@ typedef enum {
     }
 }
 
+- (void)cleanupWebViewResources {
+    if (webView) {
+        webView.navigationDelegate = nil;
+        [webView.configuration.userContentController removeScriptMessageHandlerForName:@"clevertap"];
+        
+        if (_panGesture) {
+            [webView removeGestureRecognizer:_panGesture];
+            _panGesture.delegate = nil;
+            _panGesture = nil;
+        }
+        
+        [webView removeFromSuperview];
+        webView = nil;
+    }
+    _jsInterface = nil;
+}
+
+- (void)dealloc {
+    [self cleanupWebViewResources];
+}
 
 #pragma mark - Revealing Setter
 
@@ -463,7 +513,8 @@ typedef enum {
                 self->webView.frame = CGRectOffset(self->webView.frame, bounceDistance, 0);
             }
                              completion:^(BOOL finished) {
-                [self hide:NO];
+                CTNotificationAction *action = [[CTNotificationAction alloc] initWithCloseAction];
+                [self triggerInAppAction:action callToAction: CLTAP_CTA_SWIPE_DISMISS buttonId:nil];
             }];
         }];
     }];
@@ -485,19 +536,9 @@ typedef enum {
 - (void)showFromWindow:(BOOL)animated {
     if (!self.notification) return;
     Class windowClass = self.shouldPassThroughTouches ? CTInAppPassThroughWindow.class : UIWindow.class;
-    
-    if (@available(iOS 13, *)) {
-        NSSet *connectedScenes = [CTUIUtils getSharedApplication].connectedScenes;
-        for (UIScene *scene in connectedScenes) {
-            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-                UIWindowScene *windowScene = (UIWindowScene *)scene;
-                self.window = [[windowClass alloc] initWithFrame:
-                               windowScene.coordinateSpace.bounds];
-                self.window.windowScene = windowScene;
-            }
-        }
-    } else {
-        self.window = [[windowClass alloc] initWithFrame:CGRectMake(0, 0, [UIScreen mainScreen].bounds.size.width, [UIScreen mainScreen].bounds.size.height)];
+    [self initializeWindowOfClass:windowClass animated:animated];
+    if (!self.window) {
+        return;
     }
     
     self.window.alpha = 0;
@@ -507,8 +548,8 @@ typedef enum {
     [self.window setHidden:NO];
     
     void (^completionBlock)(void) = ^ {
-        if (self.delegate && [self.delegate respondsToSelector:@selector(notificationDidShow:fromViewController:)]) {
-            [self.delegate notificationDidShow:self.notification fromViewController:self];
+        if (self.delegate) {
+            [self.delegate notificationDidShow:self.notification];
         }
     };
     if (animated) {
@@ -523,28 +564,6 @@ typedef enum {
     }
 }
 
-- (void)hideFromWindow:(BOOL)animated {
-    void (^completionBlock)(void) = ^ {
-        [self.window removeFromSuperview];
-        self.window = nil;
-        if (self.delegate && [self.delegate respondsToSelector:@selector(notificationDidDismiss:fromViewController:)]) {
-            [self.delegate notificationDidDismiss:self.notification fromViewController:self];
-        }
-    };
-    
-    if (animated) {
-        [UIView animateWithDuration:0.25 animations:^{
-            self.window.alpha = 0;
-        } completion:^(BOOL finished) {
-            completionBlock();
-        }];
-    }
-    else {
-        completionBlock();
-    }
-}
-
-
 #pragma mark - Public
 
 - (void)show:(BOOL)animated {
@@ -553,7 +572,8 @@ typedef enum {
 }
 
 - (void)hide:(BOOL)animated {
-    [self hideFromWindow:animated];
+    [self cleanupWebViewResources];
+    [super hideFromWindow:animated];
 }
 
 @end

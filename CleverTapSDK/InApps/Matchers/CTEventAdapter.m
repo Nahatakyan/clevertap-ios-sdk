@@ -8,15 +8,16 @@
 
 #import "CTEventAdapter.h"
 #import "CTConstants.h"
+#import "CTUtils.h"
 
 static NSDictionary<NSString*, NSString*> *systemPropToKey;
 
 @interface CTEventAdapter()
 
 @property (nonatomic, strong) NSString *eventName;
-@property (nonatomic, strong) NSDictionary *eventProperties;
 @property (nonatomic, strong) NSArray<NSDictionary *> *items;
 @property (nonatomic, assign) CLLocationCoordinate2D location;
+@property (nonatomic, strong, nullable) NSString *profileAttrName;
 
 @end
 
@@ -74,6 +75,18 @@ static NSDictionary<NSString*, NSString*> *systemPropToKey;
     return self;
 }
 
+- (instancetype)initWithEventName:(NSString *)eventName
+                  profileAttrName:(NSString *)profileAttrName
+                  eventProperties:(NSDictionary *)eventProperties
+                      andLocation:(CLLocationCoordinate2D)location{
+    
+    if (self = [super init]) {
+        self = [self initWithEventName:eventName eventProperties:eventProperties location:location andItems:@[]];
+        self.profileAttrName = profileAttrName;
+    }
+    return self;
+}
+
 - (CTTriggerValue *)propertyValueNamed:(NSString *)name {
     id propertyValue = [self getActualPropertyValue:name];
     if (propertyValue) {
@@ -83,19 +96,41 @@ static NSDictionary<NSString*, NSString*> *systemPropToKey;
 }
 
 - (id)getActualPropertyValue:(NSString *)propertyName {
-    id value = self.eventProperties[propertyName];
+    id value = [self getPropertyValue:propertyName];
+    
     if (value == nil) {
         if ([propertyName isEqualToString:CLTAP_PROP_CAMPAIGN_ID]) {
-            value = self.eventProperties[CLTAP_PROP_WZRK_ID];
+            value = [self getPropertyValue:CLTAP_PROP_WZRK_ID];
         } else if ([propertyName isEqualToString:CLTAP_PROP_WZRK_ID]) {
-            value = self.eventProperties[CLTAP_PROP_CAMPAIGN_ID];
+            value = [self getPropertyValue:CLTAP_PROP_CAMPAIGN_ID];
         } else if ([propertyName isEqualToString:CLTAP_PROP_VARIANT]) {
-            value = self.eventProperties[CLTAP_PROP_WZRK_PIVOT];
+            value = [self getPropertyValue:CLTAP_PROP_WZRK_PIVOT];
         } else if ([propertyName isEqualToString:CLTAP_PROP_WZRK_PIVOT]) {
-            value = self.eventProperties[CLTAP_PROP_VARIANT];
+            value = [self getPropertyValue:CLTAP_PROP_VARIANT];
         } else if (systemPropToKey[propertyName]) {
             // Map App Fields
-            value = self.eventProperties[systemPropToKey[propertyName]];
+            value = [self getPropertyValue:systemPropToKey[propertyName]];
+        }
+    }
+    return value;
+}
+
+- (id)getPropertyValue:(NSString *)propertyName {
+    id value = self.eventProperties[propertyName];
+    
+    if (value == nil) {
+        // Normalize the property name
+        propertyName = [CTUtils getNormalizedName:propertyName];
+        value = self.eventProperties[propertyName];
+    }
+    
+    if (value == nil) {
+        // Check if event properties name are normalized equal
+        for (NSString *key in self.eventProperties) {
+            if ([CTUtils areEqualNormalizedName:key andName:propertyName]) {
+                value = self.eventProperties[key];
+                break;
+            }
         }
     }
     return value;
@@ -108,6 +143,20 @@ static NSDictionary<NSString*, NSString*> *systemPropToKey;
     NSMutableArray *itemValues = [NSMutableArray new];
     for (NSDictionary *item in self.items) {
         id value = item[name];
+        if (value == nil) {
+            NSString *normalizedName = [CTUtils getNormalizedName:name];
+            value = item[normalizedName];
+        }
+        if (value == nil) {
+            // Normalize the keys in the dictionary
+            NSMutableDictionary *normalizedItem = [NSMutableDictionary dictionary];
+            for (NSString *key in item) {
+                NSString *normalizedKey = [CTUtils getNormalizedName:key];
+                normalizedItem[normalizedKey] = item[key];
+            }
+            value = normalizedItem[[CTUtils getNormalizedName:name]];
+        }
+        
         if (value) {
             [itemValues addObject:value];
         }

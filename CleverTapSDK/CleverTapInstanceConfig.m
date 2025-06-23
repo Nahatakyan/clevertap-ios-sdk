@@ -2,7 +2,7 @@
 #import "CleverTapInstanceConfigPrivate.h"
 #import "CTPlistInfo.h"
 #import "CTConstants.h"
-#import "CTAES.h"
+#import "CTEncryptionManager.h"
 
 @implementation CleverTapInstanceConfig
 
@@ -27,8 +27,9 @@
     [coder encodeBool: _beta forKey:@"beta"];
     [coder encodeBool: _wv_init forKey:@"wv_init"];
     [coder encodeInt: _encryptionLevel forKey:@"encryptionLevel"];
-    [coder encodeObject: _aesCrypt forKey:@"aesCrypt"];
+    [coder encodeObject: _cryptManager forKey:@"cryptManager"];
     [coder encodeBool:_enableFileProtection forKey:@"enableFileProtection"];
+    [coder encodeObject:_handshakeDomain forKey:@"handshakeDomain"];
 }
 
 - (nullable instancetype)initWithCoder:(nonnull NSCoder *)coder {
@@ -52,8 +53,9 @@
         _beta = [coder decodeBoolForKey:@"beta"];
         _wv_init = [coder decodeBoolForKey:@"wv_init"];
         _encryptionLevel = [coder decodeIntForKey:@"encryptionLevel"];
-        _aesCrypt = [coder decodeObjectForKey:@"aesCrypt"];
+        _cryptManager = [coder decodeObjectForKey:@"cryptManager"];
         _enableFileProtection = [coder decodeBoolForKey:@"enableFileProtection"];
+        _handshakeDomain = [coder decodeObjectForKey:@"handshakeDomain"];
     }
     return self;
 }
@@ -139,6 +141,24 @@
 
 - (instancetype)initWithAccountId:(NSString *)accountId
                      accountToken:(NSString *)accountToken
+                 handshakeDomain:(NSString *)handshakeDomain
+                isDefaultInstance:(BOOL)isDefault {
+    [self checkIfAvailableAccountId:accountId accountToken:accountToken];
+    
+    if (self = [super init]) {
+        _accountId = accountId;
+        _accountToken = accountToken;
+        _handshakeDomain = handshakeDomain;
+        _isDefaultInstance = isDefault;
+        _queueLabel = [NSString stringWithFormat:@"com.clevertap.serialQueue:%@",accountId];
+        
+        [self setupPlistData:isDefault];
+    }
+    return self;
+}
+
+- (instancetype)initWithAccountId:(NSString *)accountId
+                     accountToken:(NSString *)accountToken
                       proxyDomain:(NSString *)proxyDomain
                  spikyProxyDomain:(NSString *)spikyProxyDomain
                 isDefaultInstance:(BOOL)isDefault {
@@ -184,8 +204,9 @@
     copy.identityKeys = self.identityKeys;
     copy.beta = self.beta;
     copy.encryptionLevel = self.encryptionLevel;
-    copy.aesCrypt = self.aesCrypt;
+    copy.cryptManager = self.cryptManager;
     copy.enableFileProtection = self.enableFileProtection;
+    copy.handshakeDomain = self.handshakeDomain;
     return copy;
 }
 
@@ -209,8 +230,9 @@
     _beta = plist.beta;
     _encryptionLevel = isDefault ? plist.encryptionLevel : CleverTapEncryptionNone;
     _enableFileProtection = isDefault ? plist.enableFileProtection : NO;
+    _handshakeDomain = isDefault ? plist.handshakeDomain : nil;
     if (isDefault) {
-        _aesCrypt = [[CTAES alloc] initWithAccountID:_accountId encryptionLevel:_encryptionLevel isDefaultInstance:isDefault];
+        _cryptManager = [[CTEncryptionManager alloc] initWithAccountID:_accountId encryptionLevel:_encryptionLevel isDefaultInstance:isDefault];
     }
 }
 
@@ -228,7 +250,7 @@
 - (void)setEncryptionLevel:(CleverTapEncryptionLevel)encryptionLevel {
     if (!_isDefaultInstance) {
         _encryptionLevel = encryptionLevel;
-        _aesCrypt = [[CTAES alloc] initWithAccountID:_accountId encryptionLevel:_encryptionLevel isDefaultInstance:_isDefaultInstance];
+        _cryptManager = [[CTEncryptionManager alloc] initWithAccountID:_accountId encryptionLevel:_encryptionLevel isDefaultInstance:_isDefaultInstance];
     } else {
         CleverTapLogStaticInfo("CleverTap Encryption level for default instance can't be updated from setEncryptionLevel method");
     }
@@ -239,6 +261,14 @@
         _enableFileProtection = enableFileProtection;
     } else {
         CleverTapLogStaticInfo("CleverTap enable file protection for default instance can't be updated from setEnableFileProtection method");
+    }
+}
+
+- (void)setHandshakeDomain:(NSString *)handshakeDomain {
+    if (!_isDefaultInstance) {
+        _handshakeDomain = handshakeDomain;
+    } else {
+        CleverTapLogStaticInfo("CleverTap handshake domain for default instance can't be updated from setHandshakeDomain method");
     }
 }
 @end

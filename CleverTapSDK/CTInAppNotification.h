@@ -3,14 +3,13 @@
 #import "CTInAppUtils.h"
 #import "CTNotificationButton.h"
 #if !CLEVERTAP_NO_INAPP_SUPPORT
-#import "CTInAppImagePrefetchManager.h"
+#import "CTCustomTemplateInAppData.h"
 #endif
 
 @interface CTInAppNotification : NSObject
 
 @property (nonatomic, readonly) NSString *Id;
 @property (nonatomic, readonly) NSString *campaignId;
-@property (nonatomic, copy, readonly) NSString *type;
 @property (nonatomic, readonly) CTInAppType inAppType;
 
 @property (nonatomic, copy, readonly) NSString *html;
@@ -21,17 +20,21 @@
 @property (nonatomic, readonly) int maxPerSession;
 @property (nonatomic, readonly) int totalLifetimeCount;
 @property (nonatomic, readonly) int totalDailyCount;
-@property (nonatomic, readonly) NSInteger timeToLive;
+@property (nonatomic, readonly) NSTimeInterval timeToLive;
 @property (nonatomic, assign, readonly) char position;
 @property (nonatomic, assign, readonly) float height;
 @property (nonatomic, assign, readonly) float heightPercent;
 @property (nonatomic, assign, readonly) float width;
 @property (nonatomic, assign, readonly) float widthPercent;
+@property (nonatomic, assign, readonly) float aspectRatio;
 
+@property (nonatomic, copy, readonly) NSString *landscapeContentType;
 @property (nonatomic, readonly) UIImage *inAppImage;
 @property (nonatomic, readonly) UIImage *inAppImageLandscape;
-@property (nonatomic, readonly) NSData *image;
-@property (nonatomic, readonly) NSData *imageLandscape;
+@property (nonatomic, readonly) NSData *imageData;
+@property (nonatomic, strong, readonly) NSURL *imageURL;
+@property (nonatomic, readonly) NSData *imageLandscapeData;
+@property (nonatomic, strong, readonly) NSURL *imageUrlLandscape;
 @property (nonatomic, copy, readonly) NSString *contentType;
 @property (nonatomic, copy, readonly) NSString *mediaUrl;
 @property (nonatomic, readonly, assign) BOOL mediaIsVideo;
@@ -53,24 +56,29 @@
 @property (nonatomic, readonly) NSArray<CTNotificationButton *> *buttons;
 
 @property (nonatomic, copy, readonly) NSDictionary *jsonDescription;
-@property (nonatomic, readonly) NSString *error;
+@property (nonatomic) NSString *error;
 
 @property (nonatomic, copy, readonly) NSDictionary *customExtras;
 @property (nonatomic, copy, readwrite) NSDictionary *actionExtras;
 
+@property (nonatomic, readonly) BOOL isRequestForPushPermission;
 @property (nonatomic, readonly) BOOL isLocalInApp;
 @property (nonatomic, readonly) BOOL isPushSettingsSoftAlert;
 @property (nonatomic, readonly) BOOL fallBackToNotificationSettings;
-@property (nonatomic, readonly) BOOL skipSettingsAlert;
+
+@property (nonatomic, readonly) CTCustomTemplateInAppData *customTemplateInAppData;
 
 - (instancetype)init __unavailable;
 #if !CLEVERTAP_NO_INAPP_SUPPORT
-- (instancetype)initWithJSON:(NSDictionary*)json
-        imagePrefetchManager:(CTInAppImagePrefetchManager *)imagePrefetchManager;
+- (instancetype)initWithJSON:(NSDictionary*)json;
 #endif
 
-- (void)prepareWithCompletionHandler: (void (^)(void))completionHandler;
-
 + (NSString * _Nullable)inAppId:(NSDictionary * _Nullable)inApp;
+
+- (void)setPreparedInAppImage:(UIImage * _Nullable)inAppImage
+               inAppImageData:(NSData * _Nullable)inAppImageData error:(NSString * _Nullable)error;
+
+- (void)setPreparedInAppImageLandscape:(UIImage * _Nullable)inAppImageLandscape
+               inAppImageLandscapeData:(NSData * _Nullable)inAppImageLandscapeData error:(NSString * _Nullable)error;
 
 @end

@@ -11,8 +11,20 @@
 #import "CTTriggerValue.h"
 #import "CTConstants.h"
 #import "CTTriggerEvaluator.h"
+#import "CTUtils.h"
+
+@interface CTTriggersMatcher () {}
+@property (nonatomic, strong) CTLocalDataStore *dataStore;
+@end
 
 @implementation CTTriggersMatcher
+
+- (instancetype)initWithDataStore:(CTLocalDataStore *)dataStore {
+    if (self = [super init]) {
+        self.dataStore = dataStore;
+    }
+    return self;
+}
 
 - (BOOL)matchEventWhenTriggers:(NSArray *)whenTriggers event:(CTEventAdapter *)event {
     // Events in the array are OR-ed
@@ -30,11 +42,17 @@
 }
 
 - (BOOL)match:(CTTriggerAdapter *)trigger event:(CTEventAdapter *)event {
-    if (![[event eventName] isEqualToString:[trigger eventName]]) {
+    BOOL eventNameMatch = [CTUtils areEqualNormalizedName:[event eventName] andName:[trigger eventName]];
+    BOOL profileAttrNameMatch = [event profileAttrName] != nil && [CTUtils areEqualNormalizedName:[event profileAttrName] andName:[trigger profileAttrName]];
+    if (!eventNameMatch && !profileAttrNameMatch) {
         return NO;
     }
     
     if (![self matchProperties:event trigger:trigger]) {
+        return NO;
+    }
+    
+    if (![self matchFirstTimeOnlyForTrigger:trigger]) {
         return NO;
     }
     
@@ -111,6 +129,14 @@
         }
     }
     return YES;
+}
+
+- (BOOL)matchFirstTimeOnlyForTrigger:(CTTriggerAdapter *)trigger {
+    if (!trigger.firstTimeOnly) {
+        return YES;
+    }
+    NSString *nameToCheck = trigger.profileAttrName ?: trigger.eventName;
+    return [self.dataStore isEventLoggedFirstTime:nameToCheck];
 }
 
 @end

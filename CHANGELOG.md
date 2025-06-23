@@ -1,6 +1,89 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+### [Version 7.2.0](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.2.0) (May 27, 2025)
+
+#### Added
+- Introduces System App Functions (Open Url, App Rating, Push Permission Request - as mentioned [here](/docs/SystemInAppFunctions.md)) which can be triggered either as a button action within an in-app message or as a standalone campaign action in CleverTap, enriching client workflows.
+- Adds support for Advanced InApp Builder templates. This feature enables easy creation of visually appealing in-app messages that seamlessly integrate with your app's look and feel. It includes support for non-intrusive HTML banners with flexible configuration options, triggered via in-app event-based actions.
+- Upgrades the algorithm used for [encryption of PII data](https://github.com/CleverTap/clevertap-ios-sdk/blob/master/docs/Encryption.md), making it compliant with [OWASP](https://mas.owasp.org/MASTG/0x04g-Testing-Cryptography/). Uses Keychain for securely backing up encryption key on iOS 13+.
+
+> ⚠️ **NOTE**
+After upgrading the SDK to v7.2.0+, do not downgrade in subsequent app releases if you have enabled additional encryption. If you encounter any issues, please contact the CleverTap support team for assistance.
+
+#### Fixed
+- Fixes a bug where the TTL of in-app messages was compared with an int instead of NSTimeInterval.
+- Improves in-app content display with updated layout guidelines, ensuring HTML views respect safe area boundaries on devices with notches and other screen features.
+- Fixes a bug where certain webview resources were not cleaned up after HTML in-app messages were dismissed.
+
+### [Version 7.1.1](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.1.1) (March 17, 2025)
+
+#### Added
+- Adds `dismissInAppNotification` action to dismiss custom HTML in-Apps
+
+#### Fixed
+- Fixes custom in-app device orientation check
+
+### [Version 7.1.0](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.1.0) (January 21, 2025)
+
+#### Added
+- Adds support for triggering InApps based on first-time event filtering in multiple triggers. Now you can create campaign triggers that combine recurring and first-time events. For example: Trigger a campaign when "Charged" occurs (every time) OR "App Launched" occurs (first time only).
+- Adds new user-level event log tracking system to store and manage user event history. New APIs include:
+  - `getUserEventLog(:)`: Get details about a specific event
+  - `getUserEventLogCount(:)`: Get count of times an event occurred
+  - `getUserLastVisitTs()`: Get timestamp of user's last app visit
+  - `getUserAppLaunchCount()`: Get total number of times user has launched the app
+  - `getUserEventLogHistory()`: Get full event history for current user
+- Adds `inAppNotificationDidShow:` to the `CleverTapInAppNotificationDelegate` delegate.
+
+#### API Changes
+
+- **Deprecated:**  The old event tracking APIs tracked events at the device level rather than the user level, making it difficult to maintain accurate user-specific event histories, especially in multi-user scenarios. The following methods have been deprecated in favor of new user-specific event tracking APIs that provide more accurate, user-level analytics. These deprecated methods will be removed in future versions with prior notice:
+  - `eventGetDetail(:)`: Use `getUserEventLog()` instead for user-specific event details
+  - `eventGetOccurrences(:)`: Use `getUserEventLogCount()` instead for user-specific event counts
+  - `eventGetFirstTime(:)`: Use `getUserEventLog()` instead for user-specific first occurrence timestamp
+  - `eventGetLastTime(:)`: Use `getUserEventLog()` instead for user-specific last occurrence timestamp
+  - `userGetPreviousVisitTime()`: Use `getUserLastVisitTs()` instead for user-specific last visit timestamp
+  - `userGetTotalVisits()`: Use `getUserAppLaunchCount()` instead for user-specific app launch count
+  - `userGetEventHistory()`: Use `getUserEventLogHistory()` instead for user-specific event history
+
+### [Version 7.0.3](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.0.3) (November 29, 2024)
+
+#### Added
+- Adds a method `setCredentials` for setting custom handshake domains.
+- Adds support for previewing in-apps created through the new dashboard advanced builder.
+- Adds parsing of urls for `open-url` action to track parameters in the url for `Notification Clicked` events in HTML in-app messages.
+- Adds support for `promptForPushPermission` method in JS Interface and HTML in-apps.
+
+#### Fixed
+- Mitigates a potential crash related to the `CTValidationResultStack` class.
+- Mitigates a potential crash on `[CTInAppHTMLViewController hideFromWindow:]`.
+- Changes campaign triggering evaluation of event names, event properties, and profile properties to ignore letter case and whitespace.
+- Fixes an issue where the `wzrk_c2a` value is passed as null to backend when we receive null for `callToAction` value in a webView message handler.
+
+### [Version 7.0.2](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.0.2) (October 10, 2024)
+
+#### Added
+- Adds support for custom handshake domains.
+- Adds support for custom code in-app templates definitions through a json scheme.
+
+### [Version 7.0.1](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.0.1) (August 22, 2024)
+
+#### Fixed
+- Fixes a bug where some user properties were being sent with an incorrect prefix
+
+### [Version 7.0.0](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.0.0) (August 07, 2024)
+
+#### Added
+- Adds support for Custom Code Templates. Please refer to the [Custom Code Templates doc](/docs/CustomCodeTemplates.md) to read more on how to integrate this in your app.
+- Adds support for File Type Variables in Remote Config. Please refer to the [Remote Config Variables doc](/docs/Variables.md) to read more on how to integrate this in your app.
+- Adds support for triggering in-app notifications on User Attribute Change.
+- Adds the CleverTap SDK version in the JS interface for HTML in-app notifications.
+
+#### Fixed
+- Fix HTML view controller `CTInAppHTMLViewController` presented before scene became active.
+- Use keyWindow supported orientations for `CTInAppDisplayViewController`.
+
 ### [Version 6.2.1](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/6.2.1) (April 12, 2024)
 
 #### Fixed

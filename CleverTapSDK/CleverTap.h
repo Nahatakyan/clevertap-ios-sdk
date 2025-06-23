@@ -24,6 +24,8 @@
 @protocol CleverTapPushNotificationDelegate;
 #if !CLEVERTAP_NO_INAPP_SUPPORT
 @protocol CleverTapInAppNotificationDelegate;
+@class CTTemplateContext;
+@protocol CTTemplateProducer;
 #endif
 
 @protocol CTBatchSentDelegate;
@@ -299,6 +301,24 @@ typedef void (^CleverTapFetchInAppsBlock)(BOOL success);
  @method
  
  @abstract
+ Sets the CleverTap AccountID, token, proxy domain URL for APIs and spiky proxy domain URL for push impression APIs
+ 
+@discussion
+Sets the CleverTap account credentials and proxy domain URL. Once the default shared instance is intialized subsequent calls will be ignored.
+Only has effect on the default shared instance.
+
+@param accountID  the CleverTap account id
+@param token the CleverTap account token
+@param proxyDomain the domain of the proxy server eg: example.com or subdomain.example.com
+@param spikyProxyDomain the domain of the proxy server for push impression eg: example.com or subdomain.example.com
+@param handshakeDomain the domain to be used for clevertap handshake
+ */
++ (void)setCredentialsWithAccountID:(NSString * _Nonnull)accountID token:(NSString * _Nonnull)token proxyDomain:(NSString * _Nonnull)proxyDomain spikyProxyDomain:(NSString * _Nonnull)spikyProxyDomain handshakeDomain:(NSString * _Nonnull)handshakeDomain;
+
+/*!
+ @method
+ 
+ @abstract
  notify the SDK instance of application launch
  
  */
@@ -372,16 +392,16 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  @method
  
  @abstract
- Creates a separate and distinct user profile identified by one or more of Identity, Email, FBID or GPID values,
+ Creates a separate and distinct user profile identified by one or more of Identity or Email values,
  and populated with the key-values included in the properties dictionary.
  
  @discussion
  If your app is used by multiple users, you can use this method to assign them each a unique profile to track them separately.
  
- If instead you wish to assign multiple Identity, Email, FBID and/or GPID values to the same user profile,
+ If instead you wish to assign multiple Identity and/or Email values to the same user profile,
  use profilePush rather than this method.
  
- If none of Identity, Email, FBID or GPID is included in the properties dictionary,
+ If none of Identity or Email is included in the properties dictionary,
  all properties values will be associated with the current user profile.
  
  When initially installed on this device, your app is assigned an "anonymous" profile.
@@ -411,10 +431,10 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  @discussion
  If your app is used by multiple users, you can use this method to assign them each a unique profile to track them separately.
  
- If instead you wish to assign multiple Identity, Email, FBID and/or GPID values to the same user profile,
+ If instead you wish to assign multiple Identity and/or Email values to the same user profile,
  use profilePush rather than this method.
  
- If none of Identity, Email, FBID or GPID is included in the properties dictionary,
+ If none of Identity or Email is included in the properties dictionary,
  all properties values will be associated with the current user profile.
  
  When initially installed on this device, your app is assigned an "anonymous" profile.
@@ -781,7 +801,7 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  
  @param event           event name
  */
-- (NSTimeInterval)eventGetFirstTime:(NSString *_Nonnull)event;
+- (NSTimeInterval)eventGetFirstTime:(NSString *_Nonnull)event __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserEventLog instead")));
 
 /*!
  @method
@@ -793,7 +813,7 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  @param event           event name
  */
 
-- (NSTimeInterval)eventGetLastTime:(NSString *_Nonnull)event;
+- (NSTimeInterval)eventGetLastTime:(NSString *_Nonnull)event __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserEventLog instead")));
 
 /*!
  @method
@@ -804,7 +824,7 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  
  @param event           event name
  */
-- (int)eventGetOccurrences:(NSString *_Nonnull)event;
+- (int)eventGetOccurrences:(NSString *_Nonnull)event __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserEventLogCount instead")));
 
 /*!
  @method
@@ -818,7 +838,7 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
  
  */
-- (NSDictionary *_Nullable)userGetEventHistory;
+- (NSDictionary *_Nullable)userGetEventHistory __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserEventLogHistory instead")));
 
 /*!
  @method
@@ -833,7 +853,48 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  
  @param event           event name
  */
-- (CleverTapEventDetail *_Nullable)eventGetDetail:(NSString *_Nullable)event;
+- (CleverTapEventDetail *_Nullable)eventGetDetail:(NSString *_Nullable)event __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserEventLog instead")));
+
+/*!
+ @method
+ 
+ @abstract
+ Get the the count of logged events for a specific event name associated with the current user.
+ This operation involves a database query and should be called from a background thread.
+ Be sure to call enablePersonalization prior to invoking this method.
+ 
+ @param eventName           event name
+ */
+- (int)getUserEventLogCount:(NSString *_Nonnull)eventName;
+
+/*!
+ @method
+ 
+ @abstract
+ Get the details for the event.
+ 
+ @discussion
+ Returns a CleverTapEventDetail object (eventName, normalizedEventName, firstTime, lastTime, count, deviceID)
+ This operation involves a database query and should be called from a background thread.
+ Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
+ 
+ @param eventName           event name
+ */
+- (CleverTapEventDetail *_Nullable)getUserEventLog:(NSString *_Nullable)eventName;
+
+/*!
+ @method
+ 
+ @abstract
+ Get the user's event history.
+ 
+ @discussion
+ Returns a dictionary of CleverTapEventDetail objects (eventName, normalizedEventName, firstTime, lastTime, count, deviceID), keyed by eventName.
+ This operation involves a database query and should be called from a background thread.
+ Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
+ 
+ */
+- (NSDictionary *_Nullable)getUserEventLogHistory;
 
 
 #pragma mark Session API
@@ -869,7 +930,17 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  
  Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
  */
-- (int)userGetTotalVisits;
+- (int)userGetTotalVisits __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserAppLaunchCount instead")));
+
+/*!
+ @method
+ 
+ @abstract
+ Get the total number of visits by this user.
+ This operation involves a database query and should be called from a background thread.
+ Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
+ */
+- (int)getUserAppLaunchCount;
 
 /*!
  @method
@@ -889,7 +960,17 @@ extern NSString * _Nonnull const CleverTapGeofencesDidUpdateNotification;
  Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
  
  */
-- (NSTimeInterval)userGetPreviousVisitTime;
+- (NSTimeInterval)userGetPreviousVisitTime __attribute__((deprecated("Deprecated as of version 7.1.0, use getUserLastVisitTs instead")));
+
+/*!
+ @method
+ 
+ @abstract
+ Get the last prior visit time for this user.
+ Be sure to call enablePersonalization (typically once at app launch) prior to using this method.
+ 
+ */
+- (NSTimeInterval)getUserLastVisitTs;
 
 /* ------------------------------------------------------------------------------------------------------
  * Synchronization
@@ -1416,6 +1497,80 @@ extern NSString * _Nonnull const CleverTapProfileDidInitializeNotification;
  @param name The name of the variable or the group.
  */
 - (id _Nullable)getVariableValue:(NSString * _Nonnull)name;
+
+/*!
+ @method
+ 
+ @abstract
+ Adds a callback to be invoked when no more file downloads are pending (either when no files needed to be downloaded or all downloads have been completed).
+ 
+ @param block a callback to add.
+ */
+- (void)onVariablesChangedAndNoDownloadsPending:(CleverTapVariablesChangedBlock _Nonnull )block;
+
+/*!
+ @method
+ 
+ @abstract
+ Adds a callback to be invoked only once when no more file downloads are pending (either when no files needed to be downloaded or all downloads have been completed).
+ 
+ @param block a callback to add.
+ */
+- (void)onceVariablesChangedAndNoDownloadsPending:(CleverTapVariablesChangedBlock _Nonnull )block;
+
+#if !CLEVERTAP_NO_INAPP_SUPPORT
+#pragma mark Custom Templates and Functions
+
+/*!
+ Register ``CTCustomTemplate`` templates through a ``CTTemplateProducer``.
+ See ``CTCustomTemplateBuilder``. Templates must be registered before the ``CleverTap`` instance, that would use
+ them, is created.
+ 
+ Typically, this method is called from `UIApplicationDelegate/application:didFinishLaunchingWithOptions:`.
+ If your application uses multiple ``CleverTap`` instances, use the ``CleverTapInstanceConfig`` within the
+ ``CTTemplateProducer/defineTemplates:`` method to differentiate which templates should be registered to which instances.
+ 
+ This method can be called multiple times with different ``CTTemplateProducer`` producers, however all of the
+ produced templates must have unique names.
+ 
+ @param producer A ``CTTemplateProducer`` to register and define templates with.
+ */
++ (void)registerCustomInAppTemplates:(id<CTTemplateProducer> _Nonnull)producer;
+
+/*!
+ @method
+ 
+ @abstract
+ Uploads Custom in-app templates and app functions to the server. Requires Development/Debug build/configuration.
+ */
+- (void)syncCustomTemplates;
+
+/*!
+ @method
+ 
+ @abstract
+ Uploads Custom in-app templates and app functions to the server.
+ 
+ @param isProduction Provide `true` if Custom in-app templates and app functions must be sync in Productuon build/configuration.
+ */
+- (void)syncCustomTemplates:(BOOL)isProduction;
+
+/*!
+ @method
+ 
+ @abstract
+ Retrieves the active context for a template that is currently displaying. If the provided template
+ name is not of a currently active template, this method returns nil.
+ 
+ @param templateName The template name to get the active context for.
+ 
+ @return
+ A CTTemplateContext object representing the active context for the given template name, or nil if no active context exists.
+ 
+ */
+- (CTTemplateContext * _Nullable)activeContextForTemplate:(NSString * _Nonnull)templateName;
+
+#endif
 
 @end
 
