@@ -34,6 +34,10 @@
 #import "CTFileDownloader.h"
 #import "CTCryptMigrator.h"
 
+#if !defined(CLEVERTAP_TVOS)
+#import "CTContentFetchManager.h"
+#endif
+
 #if !CLEVERTAP_NO_INAPP_SUPPORT
 #import "CTInAppFCManager.h"
 #import "CTInAppNotification.h"
@@ -104,6 +108,11 @@ static NSArray *sslCertNames;
 #import "CTEncryptionManager.h"
 
 #import <objc/runtime.h>
+#if __has_include(<CleverTapSDK/CleverTapSDK-Swift.h>)
+#import <CleverTapSDK/CleverTapSDK-Swift.h>
+#else
+#import "CleverTapSDK-Swift.h"
+#endif
 
 static const void *const kQueueKey = &kQueueKey;
 static const void *const kNotificationQueueKey = &kNotificationQueueKey;
@@ -115,20 +124,8 @@ NSString *const kQUEUE_NAME_PROFILE = @"net_queue_profile";
 NSString *const kQUEUE_NAME_EVENTS = @"events";
 NSString *const kQUEUE_NAME_NOTIFICATIONS = @"notifications";
 
-NSString *const kREDIRECT_DOMAIN_KEY = @"CLTAP_REDIRECT_DOMAIN_KEY";
-NSString *const kREDIRECT_NOTIF_VIEWED_DOMAIN_KEY = @"CLTAP_REDIRECT_NOTIF_VIEWED_DOMAIN_KEY";
-NSString *const kMUTED_TS_KEY = @"CLTAP_MUTED_TS_KEY";
-
-NSString *const kREDIRECT_HEADER = @"X-WZRK-RD";
-NSString *const kREDIRECT_NOTIF_VIEWED_HEADER = @"X-WZRK-SPIKY-RD";
-NSString *const kMUTE_HEADER = @"X-WZRK-MUTE";
-
-
 NSString *const kI_KEY = @"CLTAP_I_KEY";
 NSString *const kJ_KEY = @"CLTAP_J_KEY";
-
-NSString *const kFIRST_TS_KEY = @"CLTAP_FIRST_TS_KEY";
-NSString *const kLAST_TS_KEY = @"CLTAP_LAST_TS_KEY";
 
 NSString *const kMultiUserPrefix = @"mt_";
 
@@ -190,6 +187,14 @@ typedef NS_ENUM(NSInteger, CleverTapPushTokenRegistrationAction) {
 
 @end
 
+@interface CleverTap () <CTDomainResolverDelegate> {}
+@end
+
+#if !defined(CLEVERTAP_TVOS)
+@interface CleverTap () <CTContentFetchManagerDelegate> {}
+@end
+#endif
+
 #import <UserNotifications/UserNotifications.h>
 
 @interface CleverTap () <UIApplicationDelegate> {
@@ -216,6 +221,7 @@ typedef NS_ENUM(NSInteger, CleverTapPushTokenRegistrationAction) {
 
 @property (nonatomic, assign) BOOL pushedAPNSId;
 @property (atomic, assign) BOOL currentUserOptedOut;
+@property (atomic, assign) BOOL currentUserOptedOutAllowSystemEvents;
 @property (atomic, assign) BOOL offline;
 @property (atomic, assign) BOOL enableNetworkInfoReporting;
 @property (atomic, assign) BOOL initialEventsPushed;
@@ -239,6 +245,10 @@ typedef NS_ENUM(NSInteger, CleverTapPushTokenRegistrationAction) {
 @property (nonatomic, strong, readwrite) CTMultiDelegateManager *delegateManager;
 
 @property (nonatomic, strong, readwrite) CTFileDownloader *fileDownloader;
+
+#if !defined(CLEVERTAP_TVOS)
+@property (nonatomic, strong) CTContentFetchManager *contentFetchManager;
+#endif
 
 #if !CLEVERTAP_NO_INAPP_SUPPORT
 @property (atomic, weak) id <CleverTapPushPermissionDelegate> pushPermissionDelegate;
@@ -264,6 +274,8 @@ typedef NS_ENUM(NSInteger, CleverTapPushTokenRegistrationAction) {
 @property (nonatomic, strong) CTVariables *variables;
 
 @property (nonatomic, strong) NSLocale *locale;
+
+@property (atomic, assign) BOOL isUserSwitching;
 
 - (instancetype)init __unavailable;
 
@@ -386,37 +398,37 @@ static BOOL sharedInstanceErrorLogged;
 + (nullable instancetype)_sharedInstanceWithCleverTapID:(NSString *)cleverTapID {
     @try {
         [instanceLock lock];
-    if (_defaultInstanceConfig == nil) {
-        if (!_plistInfo.accountId || !_plistInfo.accountToken) {
-            if (!sharedInstanceErrorLogged) {
-                sharedInstanceErrorLogged = YES;
-                CleverTapLogStaticInfo(@"Unable to initialize default CleverTap SDK instance. %@: %@ %@: %@", CLTAP_ACCOUNT_ID_LABEL, _plistInfo.accountId, CLTAP_TOKEN_LABEL, _plistInfo.accountToken);
-            }
-            return nil;
-        }
-        if (_plistInfo.proxyDomain.length > 0 && _plistInfo.spikyProxyDomain.length > 0) {
-            _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken proxyDomain:_plistInfo.proxyDomain spikyProxyDomain:_plistInfo.spikyProxyDomain isDefaultInstance:YES];
-        } else if (_plistInfo.proxyDomain.length > 0) {
-            _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken proxyDomain:_plistInfo.proxyDomain isDefaultInstance:YES];
-        } else if (_plistInfo.handshakeDomain.length > 0) {
-            _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken handshakeDomain:_plistInfo.handshakeDomain isDefaultInstance:YES];
-        } else {
-            _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken accountRegion:_plistInfo.accountRegion isDefaultInstance:YES];
-        }
-        
         if (_defaultInstanceConfig == nil) {
-            return nil;
+            if (!_plistInfo.accountId || !_plistInfo.accountToken) {
+                if (!sharedInstanceErrorLogged) {
+                    sharedInstanceErrorLogged = YES;
+                    CleverTapLogStaticInfo(@"Unable to initialize default CleverTap SDK instance. %@: %@ %@: %@", CLTAP_ACCOUNT_ID_LABEL, _plistInfo.accountId, CLTAP_TOKEN_LABEL, _plistInfo.accountToken);
+                }
+                return nil;
+            }
+            if (_plistInfo.proxyDomain.length > 0 && _plistInfo.spikyProxyDomain.length > 0) {
+                _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken proxyDomain:_plistInfo.proxyDomain spikyProxyDomain:_plistInfo.spikyProxyDomain isDefaultInstance:YES];
+            } else if (_plistInfo.proxyDomain.length > 0) {
+                _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken proxyDomain:_plistInfo.proxyDomain isDefaultInstance:YES];
+            } else if (_plistInfo.handshakeDomain.length > 0) {
+                _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken handshakeDomain:_plistInfo.handshakeDomain isDefaultInstance:YES];
+            } else {
+                _defaultInstanceConfig = [[CleverTapInstanceConfig alloc] initWithAccountId:_plistInfo.accountId accountToken:_plistInfo.accountToken accountRegion:_plistInfo.accountRegion isDefaultInstance:YES];
+            }
+            
+            if (_defaultInstanceConfig == nil) {
+                return nil;
+            }
+            _defaultInstanceConfig.enablePersonalization = [CleverTap isPersonalizationEnabled];
+            _defaultInstanceConfig.logLevel = [self getDebugLevel];
+            _defaultInstanceConfig.enableFileProtection = _plistInfo.enableFileProtection;
+            _defaultInstanceConfig.handshakeDomain = _plistInfo.handshakeDomain;
+            NSString *regionLog = (!_plistInfo.accountRegion || _plistInfo.accountRegion.length < 1) ? @"default" : _plistInfo.accountRegion;
+            NSString *proxyDomainLog = (!_plistInfo.proxyDomain || _plistInfo.proxyDomain.length < 1) ? @"" : _plistInfo.proxyDomain;
+            NSString *spikyProxyDomainLog = (!_plistInfo.spikyProxyDomain || _plistInfo.spikyProxyDomain.length < 1) ? @"" : _plistInfo.spikyProxyDomain;
+            CleverTapLogStaticInfo(@"Initializing default CleverTap SDK instance. %@: %@ %@: %@ %@: %@ %@: %@ %@: %@ %@: %d", CLTAP_ACCOUNT_ID_LABEL, _plistInfo.accountId, CLTAP_TOKEN_LABEL, _plistInfo.accountToken, CLTAP_REGION_LABEL, regionLog, CLTAP_PROXY_DOMAIN_LABEL, proxyDomainLog, CLTAP_SPIKY_PROXY_DOMAIN_LABEL, spikyProxyDomainLog, CLTAP_ENABLE_FILE_PROTECTION, _plistInfo.enableFileProtection);
         }
-        _defaultInstanceConfig.enablePersonalization = [CleverTap isPersonalizationEnabled];
-        _defaultInstanceConfig.logLevel = [self getDebugLevel];
-        _defaultInstanceConfig.enableFileProtection = _plistInfo.enableFileProtection;
-        _defaultInstanceConfig.handshakeDomain = _plistInfo.handshakeDomain;
-        NSString *regionLog = (!_plistInfo.accountRegion || _plistInfo.accountRegion.length < 1) ? @"default" : _plistInfo.accountRegion;
-        NSString *proxyDomainLog = (!_plistInfo.proxyDomain || _plistInfo.proxyDomain.length < 1) ? @"" : _plistInfo.proxyDomain;
-        NSString *spikyProxyDomainLog = (!_plistInfo.spikyProxyDomain || _plistInfo.spikyProxyDomain.length < 1) ? @"" : _plistInfo.spikyProxyDomain;
-        CleverTapLogStaticInfo(@"Initializing default CleverTap SDK instance. %@: %@ %@: %@ %@: %@ %@: %@ %@: %@ %@: %d", CLTAP_ACCOUNT_ID_LABEL, _plistInfo.accountId, CLTAP_TOKEN_LABEL, _plistInfo.accountToken, CLTAP_REGION_LABEL, regionLog, CLTAP_PROXY_DOMAIN_LABEL, proxyDomainLog, CLTAP_SPIKY_PROXY_DOMAIN_LABEL, spikyProxyDomainLog, CLTAP_ENABLE_FILE_PROTECTION, _plistInfo.enableFileProtection);
-    }
-    return [self _instanceWithConfig:_defaultInstanceConfig andCleverTapID:cleverTapID];
+        return [self _instanceWithConfig:_defaultInstanceConfig andCleverTapID:cleverTapID];
     } @finally {
         [instanceLock unlock];
     }
@@ -472,27 +484,43 @@ static BOOL sharedInstanceErrorLogged;
             initialProfileValues[CLTAP_SYS_TZ] = _deviceInfo.timeZone;
         }
         
-        self.dispatchQueueManager = [[CTDispatchQueueManager alloc]initWithConfig:_config];
+        self.dispatchQueueManager = [[CTDispatchQueueManager alloc] initWithConfig:_config];
         self.delegateManager = [[CTMultiDelegateManager alloc] init];
         
-        _cryptMigrator = [[CTCryptMigrator alloc] initWithConfig:_config andDeviceInfo: _deviceInfo];
+        _cryptMigrator = [[CTCryptMigrator alloc] initWithConfig:_config andDeviceInfo:_deviceInfo];
         
-        _localDataStore = [[CTLocalDataStore alloc] initWithConfig:_config profileValues:initialProfileValues andDeviceInfo: _deviceInfo dispatchQueueManager:_dispatchQueueManager];
+        _localDataStore = [[CTLocalDataStore alloc] initWithConfig:_config profileValues:initialProfileValues andDeviceInfo:_deviceInfo dispatchQueueManager:_dispatchQueueManager];
         
         _lastAppLaunchedTime = [self eventGetLastTime:CLTAP_APP_LAUNCHED_EVENT];
         CleverTapEventDetail *eventDetails = [self getUserEventLog:CLTAP_APP_LAUNCHED_EVENT];
         _userLastVisitTs = eventDetails ? eventDetails.lastTime : -1;
-        self.validationResultStack = [[CTValidationResultStack alloc]initWithConfig: _config];
+        self.validationResultStack = [[CTValidationResultStack alloc] initWithConfig:_config];
         self.userSetLocation = kCLLocationCoordinate2DInvalid;
         
         // save config to defaults
-        [CTPreferences archiveObject:config forFileName: [CleverTapInstanceConfig dataArchiveFileNameWithAccountId:config.accountId] config:config];
+        [CTPreferences archiveObject:config
+                         forFileName:[CleverTapInstanceConfig dataArchiveFileNameWithAccountId:_config.accountId]
+                              config:_config];
         
         [self _setDeviceNetworkInfoReportingFromStorage];
         [self _setCurrentUserOptOutStateFromStorage];
         [self initNetworking];
         [self inflateQueuesAsync];
         [self addObservers];
+        
+#if !defined(CLEVERTAP_TVOS)
+        if (self.requestSender && self.domainFactory && self.dispatchQueueManager) {
+            self.contentFetchManager = [[CTContentFetchManager alloc] initWithConfig:_config
+                                                                       requestSender:self.requestSender
+                                                                dispatchQueueManager:self.dispatchQueueManager
+                                                                    domainOperations:self.domainFactory
+                                                                            delegate:self];
+            
+            [self.delegateManager addSwitchUserDelegate:self.contentFetchManager];
+        } else {
+            CleverTapLogDebug(_config.logLevel, @"%@: Failed to initialize contentFetchManager due to missing dependencies", self);
+        }
+#endif
         
         self.fileDownloader = [[CTFileDownloader alloc] initWithConfig:self.config];
 #if !CLEVERTAP_NO_INAPP_SUPPORT
@@ -627,12 +655,12 @@ static BOOL sharedInstanceErrorLogged;
 + (void)_setCredentialsWithAccountID:(NSString *)accountID token:(NSString *)token {
     @try {
         [instanceLock lock];
-    if (_defaultInstanceConfig) {
-        CleverTapLogStaticDebug(@"CleverTap SDK already initialized with accountID: %@ and token: %@. Cannot change credentials to %@ : %@", _defaultInstanceConfig.accountId, _defaultInstanceConfig.accountToken, accountID, token);
-        return;
-    }
-    accountID = [accountID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    token = [token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (_defaultInstanceConfig) {
+            CleverTapLogStaticDebug(@"CleverTap SDK already initialized with accountID: %@ and token: %@. Cannot change credentials to %@ : %@", _defaultInstanceConfig.accountId, _defaultInstanceConfig.accountToken, accountID, token);
+            return;
+        }
+        accountID = [accountID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        token = [token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     } @finally {
         [instanceLock unlock];
     }
@@ -656,22 +684,24 @@ static BOOL sharedInstanceErrorLogged;
 }
 
 - (void)initNetworking {
-    if (self.config.isDefaultInstance) {
-        self.lastMutedTs = [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:kLAST_TS_KEY config: self.config] withResetValue:[CTPreferences getIntForKey:kMUTED_TS_KEY withResetValue:0]];
-    } else {
-        self.lastMutedTs = [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:kLAST_TS_KEY config: self.config] withResetValue:0];
-    }
-
 #if CLEVERTAP_SSL_PINNING
-     self.urlSessionDelegate = [[CTPinnedNSURLSessionDelegate alloc] initWithConfig:self.config];
-    self.domainFactory = [[CTDomainFactory alloc]initWithConfig:self.config pinnedNSURLSessionDelegate: self.urlSessionDelegate sslCertNames: sslCertNames];
-    self.requestSender = [[CTRequestSender alloc]initWithConfig:self.config redirectDomain:self.domainFactory.redirectDomain pinnedNSURLSessionDelegate: self.urlSessionDelegate sslCertNames: sslCertNames];
+    self.urlSessionDelegate = [[CTPinnedNSURLSessionDelegate alloc] initWithConfig:self.config];
+    self.domainFactory = [[CTDomainFactory alloc] initWithConfig:self.config pinnedNSURLSessionDelegate:self.urlSessionDelegate sslCertNames: sslCertNames];
+    self.requestSender = [[CTRequestSender alloc] initWithConfig:self.config redirectDomain:self.domainFactory.redirectDomain pinnedNSURLSessionDelegate:self.urlSessionDelegate sslCertNames:sslCertNames];
 #else
-    self.domainFactory = [[CTDomainFactory alloc]initWithConfig:self.config];
-    
-    self.requestSender = [[CTRequestSender alloc]initWithConfig:self.config redirectDomain:self.domainFactory.redirectDomain];
+    self.domainFactory = [[CTDomainFactory alloc] initWithConfig:self.config];
+    self.requestSender = [[CTRequestSender alloc] initWithConfig:self.config redirectDomain:self.domainFactory.redirectDomain];
 #endif
-    [self doHandshakeAsyncWithCompletion:nil];
+    
+    // Set the request sender in the domain factory so it can perform handshakes
+    [self.domainFactory setRequestSender:self.requestSender];
+    // Ensure the dispatchQueueManager is initialized
+    [self.domainFactory setDispatchQueueManager:self.dispatchQueueManager];
+    [self.domainFactory setDomainDelegate:self.domainDelegate];
+    [self.domainFactory setDomainResolverDelegate:self];
+    
+    // Perform handshake if needed
+    [self.domainFactory runSerialAsyncEnsureHandshake:nil];
 }
 
 - (void)setUserSetLocation:(CLLocationCoordinate2D)location {
@@ -693,138 +723,14 @@ static BOOL sharedInstanceErrorLogged;
     return _userSetLocation;
 }
 
-
 # pragma mark - Handshake Handling
 
-- (void)persistMutedTs {
-    self.lastMutedTs = [NSDate new].timeIntervalSince1970;
-    [CTPreferences putInt:self.lastMutedTs forKey:[CTPreferences storageKeyWithSuffix:kMUTED_TS_KEY config: self.config]];
-}
-
-- (BOOL)needHandshake {
-    if ([self isMuted] || self.domainFactory.explictEndpointDomain) {
-        return NO;
-    }
-    return self.domainFactory.redirectDomain == nil;
-}
-
-- (void)doHandshakeAsyncWithCompletion:(void (^ _Nullable )(void))taskBlock {
-    [self.dispatchQueueManager runSerialAsync:^{
-        if (![self needHandshake]) {
-            //self.domainFactory.redirectDomain contains value
-            [self onDomainAvailable];
-            if (taskBlock) {
-                taskBlock();
-            }
-            return;
-        }
-        CleverTapLogInternal(self.config.logLevel, @"%@: starting handshake with %@", self, kHANDSHAKE_URL);
-        
-        // Need to simulate a synchronous request
-        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-        
-        CTRequest *ctRequest = [CTRequestFactory helloRequestWithConfig:self.config];
-        [ctRequest onResponse:^(NSData * _Nullable data, NSURLResponse * _Nullable response) {
-            
-            if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
-                NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-                if (httpResponse.statusCode == 200) {
-                    [self updateStateFromResponseHeadersShouldRedirect:httpResponse.allHeaderFields];
-                    [self updateStateFromResponseHeadersShouldRedirectForNotif:httpResponse.allHeaderFields];
-                    [self handleHandshakeSuccess];
-                } else {
-                    [self onDomainUnavailable];
-                }
-            } else {
-                [self onDomainUnavailable];
-            }
-            if (taskBlock) {
-                taskBlock();
-            }
-                
-            dispatch_semaphore_signal(semaphore);
-        }];
-        [ctRequest onError:^(NSError * _Nullable error) {
-            [self onDomainUnavailable];
-            dispatch_semaphore_signal(semaphore);
-        }];
-        [self.requestSender send:ctRequest];
-        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
-    }];
-}
-
-- (void)runSerialAsyncEnsureHandshake:(void(^)(void))block {
-    if ([self needHandshake]) {
-        [self.dispatchQueueManager runSerialAsync:^{
-            [self doHandshakeAsyncWithCompletion:^{
-                block();
-            }];
-        }];
-    }
-    else {
-        [self.dispatchQueueManager runSerialAsync:^{
-            block();
-        }];
-    }
-}
-
-- (BOOL)updateStateFromResponseHeadersShouldRedirectForNotif:(NSDictionary *)headers {
-    CleverTapLogInternal(self.config.logLevel, @"%@: processing response with headers:%@", self, headers);
-    BOOL shouldRedirect = NO;
-    @try {
-        NSString *redirectNotifViewedDomain = headers[kREDIRECT_NOTIF_VIEWED_HEADER];
-        if (redirectNotifViewedDomain != nil) {
-            NSString *currentDomain = self.domainFactory.redirectNotifViewedDomain;
-            self.domainFactory.redirectNotifViewedDomain = redirectNotifViewedDomain;
-            if (![self.domainFactory.redirectNotifViewedDomain isEqualToString:currentDomain]) {
-                shouldRedirect = YES;
-                self.domainFactory.redirectNotifViewedDomain = redirectNotifViewedDomain;
-                [self.domainFactory persistRedirectNotifViewedDomain];
-            }
-        }
-        NSString *mutedString = headers[kMUTE_HEADER];
-        BOOL muted = (mutedString == nil ? NO : [mutedString boolValue]);
-        if (muted) {
-            [self persistMutedTs];
-            [self clearQueues];
-        }
-    } @catch(NSException *e) {
-        CleverTapLogInternal(self.config.logLevel, @"%@: Error processing Notification Viewed response headers: %@", self, e.debugDescription);
-    }
-    return shouldRedirect;
-}
-
-- (BOOL)updateStateFromResponseHeadersShouldRedirect:(NSDictionary *)headers {
-    CleverTapLogInternal(self.config.logLevel, @"%@: processing response with headers:%@", self, headers);
-    BOOL shouldRedirect = NO;
-    @try {
-        NSString *redirectDomain = headers[kREDIRECT_HEADER];
-        if (redirectDomain != nil) {
-            NSString *currentDomain = self.domainFactory.redirectDomain;
-            self.domainFactory.redirectDomain = redirectDomain;
-            if (![self.domainFactory.redirectDomain isEqualToString:currentDomain]) {
-                shouldRedirect = YES;
-                self.domainFactory.redirectDomain = redirectDomain;
-                [self.domainFactory persistRedirectDomain];
-                //domain changed
-                [self onDomainAvailable];
-            }
-        }
-        NSString *mutedString = headers[kMUTE_HEADER];
-        BOOL muted = (mutedString == nil ? NO : [mutedString boolValue]);
-        if (muted) {
-            [self persistMutedTs];
-            [self clearQueues];
-        }
-    } @catch(NSException *e) {
-        CleverTapLogInternal(self.config.logLevel, @"%@: Error processing response headers: %@", self, e.debugDescription);
-    }
-    return shouldRedirect;
-}
-
-- (void)handleHandshakeSuccess {
-    CleverTapLogInternal(self.config.logLevel, @"%@: handshake success", self);
+- (void)onHandshakeSuccess {
     [self resetFailsCounter];
+}
+
+- (void)onMute {
+    [self clearQueues];
 }
 
 - (void)resetFailsCounter {
@@ -1022,9 +928,9 @@ static BOOL sharedInstanceErrorLogged;
         evtData[@"locale"] = [self.deviceInfo.systemLocale localeIdentifier];
     }
     
-    #if CLEVERTAP_SSL_PINNING
-        evtData[@"sslpin"] = @YES;
-    #endif
+#if CLEVERTAP_SSL_PINNING
+    evtData[@"sslpin"] = @YES;
+#endif
     
     NSString *proxyDomain = [self.config.proxyDomain stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (proxyDomain != nil && proxyDomain.length > 0) {
@@ -1100,41 +1006,41 @@ static BOOL sharedInstanceErrorLogged;
 #pragma mark - Timestamp bookkeeping helpers
 
 - (void)setLastRequestTimestamp:(double)ts {
-    [CTPreferences putInt:ts forKey:kLAST_TS_KEY];
+    [CTPreferences putInt:ts forKey:[CTPreferences storageKeyWithSuffix:LAST_TS_KEY config: self.config]];
 }
 
 - (NSTimeInterval)getLastRequestTimeStamp {
     if (self.config.isDefaultInstance) {
-        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:kLAST_TS_KEY config: self.config] withResetValue:[CTPreferences getIntForKey:kLAST_TS_KEY withResetValue:0]];
+        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:LAST_TS_KEY config:self.config] withResetValue:[CTPreferences getIntForKey:LAST_TS_KEY withResetValue:0]];
     } else {
-        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:kLAST_TS_KEY config: self.config] withResetValue:0];
+        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:LAST_TS_KEY config:self.config] withResetValue:0];
     }
 }
 
 - (void)clearLastRequestTimestamp {
-    [CTPreferences putInt:0 forKey:[CTPreferences storageKeyWithSuffix:kLAST_TS_KEY config: self.config]];
+    [CTPreferences putInt:0 forKey:[CTPreferences storageKeyWithSuffix:LAST_TS_KEY config: self.config]];
 }
 
 - (void)setFirstRequestTimestampIfNeeded:(double)ts {
     NSTimeInterval firstRequestTS = [self getFirstRequestTimestamp];
     if (firstRequestTS > 0) return;
-    [CTPreferences putInt:ts forKey:[CTPreferences storageKeyWithSuffix:kFIRST_TS_KEY config: self.config]];
+    [CTPreferences putInt:ts forKey:[CTPreferences storageKeyWithSuffix:FIRST_TS_KEY config: self.config]];
 }
 
 - (NSTimeInterval)getFirstRequestTimestamp {
     if (self.config.isDefaultInstance) {
-        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:kFIRST_TS_KEY config: self.config] withResetValue:[CTPreferences getIntForKey:kFIRST_TS_KEY withResetValue:0]];
+        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:FIRST_TS_KEY config: self.config] withResetValue:[CTPreferences getIntForKey:FIRST_TS_KEY withResetValue:0]];
     } else {
-        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:kFIRST_TS_KEY config: self.config] withResetValue:0];
+        return [CTPreferences getIntForKey:[CTPreferences storageKeyWithSuffix:FIRST_TS_KEY config: self.config] withResetValue:0];
     }
 }
 
 - (void)clearFirstRequestTimestamp {
-    [CTPreferences putInt:0 forKey:[CTPreferences storageKeyWithSuffix:kFIRST_TS_KEY config: self.config]];
+    [CTPreferences putInt:0 forKey:[CTPreferences storageKeyWithSuffix:FIRST_TS_KEY config: self.config]];
 }
 
 - (BOOL)isMuted {
-    return [NSDate new].timeIntervalSince1970 - _lastMutedTs < 24 * 60 * 60;
+    return [self.domainFactory isMuted];
 }
 
 
@@ -1162,14 +1068,34 @@ static BOOL sharedInstanceErrorLogged;
 }
 
 - (void)applicationWillEnterForeground:(NSNotificationCenter *)notification {
-    if ([self needHandshake]) {
-        [self doHandshakeAsyncWithCompletion:nil];
-    }
+    [self.domainFactory runSerialAsyncEnsureHandshake:nil];
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
-    if ([self isMuted]) return;
-    [self persistOrClearQueues];
+    UIApplication *application = [CTUIUtils getSharedApplication];
+    UIBackgroundTaskIdentifier __block backgroundTask;
+    
+    void (^finishTaskHandler)(void) = ^(){
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            [application endBackgroundTask:backgroundTask];
+            backgroundTask = UIBackgroundTaskInvalid;
+        });
+    };
+    // Start background task to make sure it runs when the app is in background.
+    backgroundTask = [application beginBackgroundTaskWithExpirationHandler:finishTaskHandler];
+    
+    @try {
+        [self.dispatchQueueManager runSerialAsync:^{
+            if (![self isMuted]) {
+                [self persistOrClearQueues];
+            }
+            finishTaskHandler();
+        }];
+    }
+    @catch (NSException *exception) {
+        CleverTapLogDebug(self.config.logLevel, @"%@: Exception caught: %@", self, [exception reason]);
+        finishTaskHandler();
+    }
 }
 
 - (void)_appEnteredForegroundWithLaunchingOptions:(NSDictionary *)launchOptions {
@@ -1202,16 +1128,24 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)_appEnteredForeground {
     if ([CTUIUtils runningInsideAppExtension]) return;
+    
+    // Check application state
+    UIApplication *application = [CTUIUtils getSharedApplication];
+    BOOL isActuallyInForeground = (application.applicationState == UIApplicationStateActive);
     [self.sessionManager updateSessionStateOnLaunch];
-    if (!self.isAppForeground) {
+    
+    // Only record app launched if app is transitioning to foreground and app is active
+    if (!self.isAppForeground && isActuallyInForeground) {
         [self recordAppLaunched:@"appEnteredForeground"];
         [self scheduleQueueFlush];
         CleverTapLogInternal(self.config.logLevel, @"%@: app is in foreground", self);
     }
-    self.isAppForeground = YES;
+    
+    // Set flag based on actual state
+    self.isAppForeground = isActuallyInForeground;
     
 #if !CLEVERTAP_NO_INAPP_SUPPORT
-    if (!_config.analyticsOnly && ![CTUIUtils runningInsideAppExtension]) {
+    if (isActuallyInForeground && !_config.analyticsOnly && ![CTUIUtils runningInsideAppExtension]) {
         [self.inAppFCManager checkUpdateDailyLimits];
     }
 #endif
@@ -1263,6 +1197,7 @@ static BOOL sharedInstanceErrorLogged;
     
     // Load Vars from cache before App Launched
     [self.variables.varCache loadDiffs];
+    [self.variables.varCache loadVariants];
     
     self.sessionManager.appLaunchProcessed = YES;
     
@@ -1445,7 +1380,7 @@ static BOOL sharedInstanceErrorLogged;
 
 #if !defined(CLEVERTAP_TVOS)
 - (BOOL)_checkAndHandleTestPushPayload:(NSDictionary *)notification {
-    if (notification[@"wzrk_inapp"] || notification[@"wzrk_inbox"] || notification[@"wzrk_adunit"]) {
+    if (notification[@"wzrk_inapp"] || notification[@"wzrk_inbox"] || notification[@"wzrk_adunit"] || notification[@"wzrk_inapp_s3_url"] || notification[CLTAP_INAPP_PREVIEW_TYPE]) {
         // remove unknown json attributes
         NSMutableDictionary *testPayload = [NSMutableDictionary new];
         for (NSString *key in [notification allKeys]) {
@@ -1594,6 +1529,45 @@ static BOOL sharedInstanceErrorLogged;
 }
 #endif
 
+- (void)fetchInAppPreviewContent:(NSString* _Nullable)url onSuccess:(void(^ _Nonnull)(NSDictionary* _Nullable inappJSON))completion {
+    if (!url) {
+        CleverTapLogDebug(self.config.logLevel, @"%@: Inapp preview URL is nil", self);
+        completion(nil);
+        return;
+    }
+    
+    CTRequest *ctRequest = [CTRequestFactory previewRequestWithConfig:self.config url:url];
+    [ctRequest onResponse:^(NSData * _Nullable data, NSURLResponse * _Nullable response) {
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+            if (httpResponse.statusCode == 200 && data) {
+                NSError *jsonError = nil;
+                NSDictionary *inAppJson = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:&jsonError];
+                if (jsonError) {
+                    CleverTapLogDebug(self.config.logLevel, @"%@: Failed to parse inapp preview JSON: %@", self, jsonError.localizedDescription);
+                    completion(nil);
+                } else {
+                    completion(inAppJson);
+                }
+            }
+            else  {
+                CleverTapLogDebug(self.config.logLevel, @"%@: Could not fetch inapp preview content with status code: %li", self, httpResponse.statusCode);
+                completion(nil);
+            }
+        }
+        else {
+            completion(nil);
+        }
+    }];
+    [ctRequest onError:^(NSError * _Nullable error) {
+        if (error) {
+            CleverTapLogDebug(self.config.logLevel, @"%@: Could not fetch inapp preview content with error: %@", self, error.localizedDescription);
+            completion(nil);
+        }
+    }];
+    [self.requestSender send:ctRequest];
+}
+
 #pragma mark - InApp Notifications
 
 #pragma mark Public Method
@@ -1607,7 +1581,7 @@ static BOOL sharedInstanceErrorLogged;
 }
 
 - (void)discardInAppNotifications {
-    [self.inAppDisplayManager _discardInAppNotifications];
+    [self.inAppDisplayManager _discardInAppNotifications:NO];
 }
 
 - (void)resumeInAppNotifications {
@@ -1617,6 +1591,10 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)clearInAppResources:(BOOL)expiredOnly {
     [self.fileDownloader clearFileAssets:expiredOnly];
+}
+
+- (void)discardInAppNotifications:(BOOL)dismissInAppIfVisible {
+    [self.inAppDisplayManager _discardInAppNotifications:dismissInAppIfVisible];
 }
 
 + (void)registerCustomInAppTemplates:(id<CTTemplateProducer> _Nonnull)producer {
@@ -1862,20 +1840,35 @@ static BOOL sharedInstanceErrorLogged;
 
 - (BOOL)_shouldDropEvent:(NSDictionary *)event withType:(CleverTapEventType)type {
     
+    // fetch events
     if (type == CleverTapEventTypeFetch) {
         return NO;
     }
-    
-    if (self.currentUserOptedOut) {
-        CleverTapLogDebug(self.config.logLevel, @"%@: User: %@ has opted out of sending events, dropping event: %@", self, self.deviceInfo.deviceId, event);
-        return YES;
-    }
-    
+    // muted
     if ([self isMuted]) {
         CleverTapLogDebug(self.config.logLevel, @"%@: is muted, dropping event: %@", self, event);
         return YES;
     }
+    // opted in
+    if (!self.currentUserOptedOut) {
+        return NO;
+    }
+    // fully opted out
+    if (!self.currentUserOptedOutAllowSystemEvents) {
+        CleverTapLogDebug(self.config.logLevel, @"%@: User: %@ has opted out of sending events, dropping event: %@", self, self.deviceInfo.deviceId, event);
+        return YES;
+    }
+    // opted out and system events allowed
+    if (type != CleverTapEventTypeRaised && type != CleverTapEventTypeNotificationViewed) {
+        return NO;
+    }
     
+    BOOL isSystemEvent = [CTValidator isRestrictedEventName:event[CLTAP_EVENT_NAME]];
+    if (!isSystemEvent) {
+        // Custom event
+        CleverTapLogDebug(self.config.logLevel, @"%@: User: %@ has opted out of sending events, dropping event: %@", self, self.deviceInfo.deviceId, event);
+        return YES;
+    }
     return NO;
 }
 
@@ -1910,6 +1903,44 @@ static BOOL sharedInstanceErrorLogged;
     }
 }
 
+- (void)addEventMeta:(CleverTapEventType)eventType mutableEvent:(NSMutableDictionary *)mutableEvent {
+    NSString *type;
+    if (eventType == CleverTapEventTypePage) {
+        type = @"page";
+    } else if (eventType == CleverTapEventTypePing) {
+        type = @"ping";
+    } else if (eventType == CleverTapEventTypeProfile) {
+        type = @"profile";
+    } else if (eventType == CleverTapEventTypeData) {
+        type = @"data";
+    } else if (eventType == CleverTapEventTypeNotificationViewed) {
+        type = @"event";
+    } else {
+        type = @"event";
+    }
+    
+    if ([type isEqualToString:@"event"]) {
+        NSString *bundleIdentifier = _deviceInfo.bundleId;
+        if (bundleIdentifier) {
+            mutableEvent[@"pai"] = bundleIdentifier;
+        }
+    }
+    mutableEvent[@"type"] = type;
+    mutableEvent[@"ep"] = @((int) [[NSDate date] timeIntervalSince1970]);
+    mutableEvent[@"s"] = @(self.sessionManager.sessionId);
+    int screenCount = self.sessionManager.screenCount == 0 ? 1 : self.sessionManager.screenCount;
+    mutableEvent[@"pg"] = @(screenCount);
+    mutableEvent[@"lsl"] = @(self.sessionManager.lastSessionLengthSeconds);
+    mutableEvent[@"f"] = @(self.sessionManager.firstSession);
+    mutableEvent[@"n"] = self.currentViewControllerName ? self.currentViewControllerName : @"_bg";
+    
+    if (eventType == CleverTapEventTypePing && _geofenceLocation) {
+        mutableEvent[@"gf"] = @(_geofenceLocation);
+        mutableEvent[@"gfSDKVersion"] = _gfSDKVersion;
+        _geofenceLocation = NO;
+    }
+}
+
 - (void)processEvent:(NSDictionary *)event withType:(CleverTapEventType)eventType {
     @try {
         // just belt and suspenders
@@ -1934,42 +1965,7 @@ static BOOL sharedInstanceErrorLogged;
             event = [self convertDataToPrimitive:event];
         }
         
-        NSString *type;
-        if (eventType == CleverTapEventTypePage) {
-            type = @"page";
-        } else if (eventType == CleverTapEventTypePing) {
-            type = @"ping";
-        } else if (eventType == CleverTapEventTypeProfile) {
-            type = @"profile";
-        } else if (eventType == CleverTapEventTypeData) {
-            type = @"data";
-        } else if (eventType == CleverTapEventTypeNotificationViewed) {
-            type = @"event";
-            NSString *bundleIdentifier = _deviceInfo.bundleId;
-            if (bundleIdentifier) {
-                mutableEvent[@"pai"] = bundleIdentifier;
-            }
-        } else {
-            type = @"event";
-            NSString *bundleIdentifier = _deviceInfo.bundleId;
-            if (bundleIdentifier) {
-                mutableEvent[@"pai"] = bundleIdentifier;
-            }
-        }
-        mutableEvent[@"type"] = type;
-        mutableEvent[@"ep"] = @((int) [[NSDate date] timeIntervalSince1970]);
-        mutableEvent[@"s"] = @(self.sessionManager.sessionId);
-        int screenCount = self.sessionManager.screenCount == 0 ? 1 : self.sessionManager.screenCount;
-        mutableEvent[@"pg"] = @(screenCount);
-        mutableEvent[@"lsl"] = @(self.sessionManager.lastSessionLengthSeconds);
-        mutableEvent[@"f"] = @(self.sessionManager.firstSession);
-        mutableEvent[@"n"] = self.currentViewControllerName ? self.currentViewControllerName : @"_bg";
-        
-        if (eventType == CleverTapEventTypePing && _geofenceLocation) {
-            mutableEvent[@"gf"] = @(_geofenceLocation);
-            mutableEvent[@"gfSDKVersion"] = _gfSDKVersion;
-            _geofenceLocation = NO;
-        }
+        [self addEventMeta:eventType mutableEvent:mutableEvent];
         
         // Report any pending validation error
         CTValidationResult *vr = [self.validationResultStack popValidationResult];
@@ -2056,11 +2052,7 @@ static BOOL sharedInstanceErrorLogged;
 }
 
 - (void)flushQueue {
-    if ([self needHandshake]) {
-        [self.dispatchQueueManager runSerialAsync:^{
-            [self doHandshakeAsyncWithCompletion:nil];
-        }];
-    }
+    [self.domainFactory runSerialAsyncEnsureHandshake:nil];
     [self.dispatchQueueManager runSerialAsync:^{
         if ([self isMuted]) {
             [self clearQueues];
@@ -2079,8 +2071,9 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)sendQueues {
     if ([self isMuted] || _offline) return;
-    [self sendQueue:_profileQueue ofType:CTQueueTypeProfile];
-    [self sendQueue:_eventsQueue ofType:CTQueueTypeEvents];
+    // Sending profiles and events together
+    NSArray *combined = [_profileQueue arrayByAddingObjectsFromArray:_eventsQueue];
+    [self sendQueue:[combined mutableCopy] ofType:CTQueueTypeEvents];
     [self sendQueue:_notificationsQueue ofType:CTQueueTypeNotifications];
 }
 
@@ -2093,21 +2086,60 @@ static BOOL sharedInstanceErrorLogged;
 }
 
 - (void)inflateEventsQueue {
-    self.eventsQueue = (NSMutableArray *)[CTPreferences unarchiveFromFile:[self eventsFileName] ofType:[NSMutableArray class] removeFile:YES];
-    if (!self.eventsQueue || [self isMuted]) {
+    // If the previous encryption level was 2/high, decrypt the object
+    BOOL wasEncrypted = (self.config.cryptManager.previousEncryptionLevel == CleverTapEncryptionHigh);
+
+    if (wasEncrypted) {
+        // File was encrypted, so decrypt when reading
+        self.eventsQueue = (NSMutableArray *)[self.config.cryptManager decryptObject:
+            [CTPreferences unarchiveFromFile:[self eventsFileName]
+                                       ofType:[NSMutableArray class]
+                                    removeFile:YES]];
+    } else {
+        // File was stored raw
+        self.eventsQueue = (NSMutableArray *)[CTPreferences unarchiveFromFile:
+            [self eventsFileName] ofType:[NSMutableArray class] removeFile:YES];
+    }
+
+    // fallback incase decryption fails
+    if (!self.eventsQueue || ![self.eventsQueue isKindOfClass:[NSMutableArray class]] || [self isMuted]) {
         self.eventsQueue = [NSMutableArray array];
     }
 }
 
 - (void)inflateProfileQueue {
-    self.profileQueue = (NSMutableArray *)[CTPreferences unarchiveFromFile:[self profileEventsFileName] ofType:[NSMutableArray class] removeFile:YES];
+    // If the previous encryption level was 2/high, decrypt the object
+    BOOL wasEncrypted = (self.config.cryptManager.previousEncryptionLevel == CleverTapEncryptionHigh);
+
+    if (wasEncrypted) {
+        // File was encrypted, so decrypt when reading
+        self.profileQueue = (NSMutableArray *)[self.config.cryptManager decryptObject:
+            [CTPreferences unarchiveFromFile:[self profileEventsFileName]
+                                       ofType:[NSMutableArray class]
+                                    removeFile:YES]];
+    } else {
+        // File was stored raw
+        self.profileQueue = (NSMutableArray *)[CTPreferences unarchiveFromFile:[self profileEventsFileName] ofType:[NSMutableArray class] removeFile:YES];
+    }
     if (!self.profileQueue || [self isMuted]) {
         self.profileQueue = [NSMutableArray array];
     }
 }
 
 - (void)inflateNotificationsQueue {
-    self.notificationsQueue = (NSMutableArray *)[CTPreferences unarchiveFromFile:[self notificationsFileName] ofType:[NSMutableArray class] removeFile:YES];
+    // If the previous encryption level was 2/high, decrypt the object
+    BOOL wasEncrypted = (self.config.cryptManager.previousEncryptionLevel == CleverTapEncryptionHigh);
+
+    if (wasEncrypted) {
+        // File was encrypted, so decrypt when reading
+        self.notificationsQueue = (NSMutableArray *)[self.config.cryptManager decryptObject:
+            [CTPreferences unarchiveFromFile:[self notificationsFileName]
+                                       ofType:[NSMutableArray class]
+                                    removeFile:YES]];
+    } else {
+        // File was stored raw
+        self.notificationsQueue = (NSMutableArray *)[CTPreferences unarchiveFromFile:[self notificationsFileName] ofType:[NSMutableArray class] removeFile:YES];
+    }
     if (!self.notificationsQueue || [self isMuted]) {
         self.notificationsQueue = [NSMutableArray array];
     }
@@ -2138,6 +2170,7 @@ static BOOL sharedInstanceErrorLogged;
     if ([self isMuted]) {
         [self clearQueues];
     } else {
+        // encrypt if level has been changed to 2/high
         [self persistProfileQueue];
         [self persistEventsQueue];
         [self persistNotificationsQueue];
@@ -2146,27 +2179,36 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)persistEventsQueue {
     NSString *fileName = [self eventsFileName];
-    NSMutableArray *eventsCopy;
+    id eventsCopy;
     @synchronized (self) {
         eventsCopy = [NSMutableArray arrayWithArray:[self.eventsQueue copy]];
+        if (self.config.encryptionLevel == CleverTapEncryptionHigh) {
+            eventsCopy = [self.config.cryptManager encryptObject:eventsCopy];
+        }
     }
     [CTPreferences archiveObject:eventsCopy forFileName:fileName config:_config];
 }
 
 - (void)persistProfileQueue {
     NSString *fileName = [self profileEventsFileName];
-    NSMutableArray *profileEventsCopy;
+    id profileEventsCopy;
     @synchronized (self) {
         profileEventsCopy = [NSMutableArray arrayWithArray:[self.profileQueue copy]];
+        if (self.config.encryptionLevel == CleverTapEncryptionHigh) {
+            profileEventsCopy = [self.config.cryptManager encryptObject:profileEventsCopy];
+        }
     }
     [CTPreferences archiveObject:profileEventsCopy forFileName:fileName config:_config];
 }
 
 - (void)persistNotificationsQueue {
     NSString *fileName = [self notificationsFileName];
-    NSMutableArray *notificationsCopy;
+    id notificationsCopy;
     @synchronized (self) {
         notificationsCopy = [NSMutableArray arrayWithArray:[self.notificationsQueue copy]];
+        if (self.config.encryptionLevel == CleverTapEncryptionHigh) {
+            notificationsCopy = [self.config.cryptManager encryptObject:notificationsCopy];
+        }
     }
     [CTPreferences archiveObject:notificationsCopy forFileName:fileName config:_config];
 }
@@ -2217,13 +2259,35 @@ static BOOL sharedInstanceErrorLogged;
         NSUInteger batchSize = ([queue count] > kMaxBatchSize) ? kMaxBatchSize : [queue count];
         NSArray *batch = [queue subarrayWithRange:NSMakeRange(0, batchSize)];
         NSArray *batchWithHeader = [self insertHeader:header inBatch:batch];
+        id finalPayload = [batchWithHeader copy];
+        NSMutableDictionary *additionalHeaders = [NSMutableDictionary dictionary];
         
         CleverTapLogInternal(self.config.logLevel, @"%@: Pending events batch contains: %d items", self, (int) [batch count]);
+        NSString *jsonBody = [CTUtils jsonObjectToString:batchWithHeader];
+        CleverTapLogDebug(self.config.logLevel, @"%@: Sending %@ to servers at %@", self, jsonBody, endpoint);
         
         @try {
-            NSString *jsonBody = [CTUtils jsonObjectToString:batchWithHeader];
-            
-            CleverTapLogDebug(self.config.logLevel, @"%@: Sending %@ to servers at %@", self, jsonBody, endpoint);
+            // Encrypt in transit only if the config/plist flag is true, for event queues only and server side encryption hasn't failed yet.
+            if (_config.encryptionInTransitEnabled && !self.sessionManager.encryptionInTransitFailed && queueType != CTQueueTypeNotifications) {
+                if (@available(iOS 13.0, *)) {
+                    NSDictionary *encryptedDict = [[NetworkEncryptionManager shared]encryptWithObject:batchWithHeader];
+                    if (encryptedDict.count > 0) {
+                        additionalHeaders[ENCRYPTION_HEADER] = @"true";
+                        
+                        NSString *encryptedPayload = encryptedDict[@"encryptedPayload"];
+                        NSString *nonceData = encryptedDict[@"nonceData"];
+                        finalPayload = @{
+                            NetworkEncryptionManager.ITP: encryptedPayload,
+                            NetworkEncryptionManager.ITK: [[NetworkEncryptionManager shared]getSessionKeyBase64],
+                            NetworkEncryptionManager.ITV: nonceData
+                        };
+                        NSString *jsonBody = [CTUtils jsonObjectToString:finalPayload];
+                        CleverTapLogDebug(self.config.logLevel, @"%@: Encrypted request: %@", self, jsonBody);
+                    }
+                } else {
+                    CleverTapLogStaticDebug(@"Encryption in transit is only available from iOS 13 and later.");
+                }
+            }
             
             // update endpoint for current timestamp
             endpoint = [self endpointForQueue:queue];
@@ -2233,6 +2297,7 @@ static BOOL sharedInstanceErrorLogged;
             }
             
             __block BOOL success = NO;
+            __block BOOL responseEncrypted = NO;
             __block NSData *responseData;
             
             __block BOOL redirect = NO;
@@ -2240,23 +2305,31 @@ static BOOL sharedInstanceErrorLogged;
             // Need to simulate a synchronous request
             dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
             
-            CTRequest *ctRequest = [CTRequestFactory eventRequestWithConfig:self.config params:batchWithHeader url:endpoint];
+            CTRequest *ctRequest = [CTRequestFactory eventRequestWithConfig:self.config params:finalPayload url:endpoint additionalHeaders:additionalHeaders];
             [ctRequest onResponse:^(NSData * _Nullable data, NSURLResponse * _Nullable response) {
                 responseData = data;
                 
                 if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
                     NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
                     
-                    success = (httpResponse.statusCode == 200);
+                    success = (httpResponse.statusCode == HTTP_OK);
+                    responseEncrypted = ([httpResponse.allHeaderFields[ENCRYPTION_HEADER]isEqualToString:@"true"]);
                     
+                    NSDictionary *headers = httpResponse.allHeaderFields;
                     if (success) {
-                        if (queue == self->_notificationsQueue) {
-                            redirect = [self updateStateFromResponseHeadersShouldRedirectForNotif: httpResponse.allHeaderFields];
-                        } else {
-                            redirect = [self updateStateFromResponseHeadersShouldRedirect: httpResponse.allHeaderFields];
+                        [self.domainFactory updateDomainFromResponseHeaders:headers];
+                        [self.domainFactory updateNotificationViewedDomainFromResponseHeaders:headers];
+                        [self.domainFactory updateMutedFromResponseHeaders:headers];
+                    }
+                    else {
+                        if (httpResponse.statusCode == HTTP_EXPIRED) {
+                            self.sessionManager.encryptionInTransitFailed = YES;
+                            CleverTapLogInfo(self.config.logLevel, @"%@: Encryption in transit failed with status code: %lu", self, (long)httpResponse.statusCode);
+                        } else if (httpResponse.statusCode == HTTP_PAYMENT_REQUIRED) {
+                            self.sessionManager.encryptionInTransitFailed = YES;
+                            CleverTapLogInfo(self.config.logLevel, @"%@: Encryption in transit is not enabled for your account, please contact the CleverTap support team.", self);
                         }
                         
-                    } else {
                         CleverTapLogDebug(self.config.logLevel, @"%@: Got %lu response when sending queue, will retry", self, (long)httpResponse.statusCode);
                     }
                 }
@@ -2291,8 +2364,14 @@ static BOOL sharedInstanceErrorLogged;
             }
             
             [queue removeObjectsInArray:batch];
+            if ([_profileQueue count] > 0) {
+                [_profileQueue removeObjectsInArray:batch];
+            }
+            if ([_eventsQueue count] > 0) {
+                [_eventsQueue removeObjectsInArray:batch];
+            }
             
-            [self parseResponse:responseData];
+            [self parseResponse:responseData responseEncrypted:responseEncrypted];
             
             [self.delegateManager notifyDelegatesBatchDidSend:batchWithHeader withSuccess:YES withQueueType:queueType];
 
@@ -2307,9 +2386,132 @@ static BOOL sharedInstanceErrorLogged;
 
 #pragma mark Response Handling
 
-- (void)parseResponse:(NSData *)responseData {
+#if !CLEVERTAP_NO_DISPLAY_UNIT_SUPPORT
+- (void)handleDisplayUnitResponse:(id)jsonResp {
+    NSArray *displayUnitJSON = jsonResp[CLTAP_DISPLAY_UNIT_JSON_RESPONSE_KEY];
+    if (displayUnitJSON) {
+        if (self.isUserSwitching) {
+            CleverTapLogDebug(self.config.logLevel, @"%@: Display Units response will not be handled due to user switch", self);
+            return;
+        }
+        
+        NSMutableArray *displayUnitNotifs;
+        @try {
+            displayUnitNotifs = [[NSMutableArray alloc] initWithArray:displayUnitJSON];
+        } @catch (NSException *e) {
+            CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Display Unit JSON: %@", self, e.debugDescription);
+        }
+        if (displayUnitNotifs && [displayUnitNotifs count] > 0) {
+            [self initializeDisplayUnitWithCallback:^(BOOL success) {
+                if (success) {
+                    NSArray <NSDictionary*> *displayUnits = [displayUnitNotifs mutableCopy];
+                    [self.displayUnitController updateDisplayUnits:displayUnits];
+                }
+            }];
+        }
+    }
+}
+#endif
+
+#if !CLEVERTAP_NO_INBOX_SUPPORT
+- (void)handleAppInboxResponse:(id)jsonResp {
+    NSArray *inboxJSON = jsonResp[CLTAP_INBOX_MSG_JSON_RESPONSE_KEY];
+    if (inboxJSON) {
+        if (self.isUserSwitching) {
+            CleverTapLogDebug(self.config.logLevel, @"%@: App Inbox response will not be handled due to user switch", self);
+            return;
+        }
+        
+        NSMutableArray *inboxNotifs;
+        @try {
+            inboxNotifs = [[NSMutableArray alloc] initWithArray:inboxJSON];
+        } @catch (NSException *e) {
+            CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Inbox Message JSON: %@", self, e.debugDescription);
+        }
+        if (inboxNotifs && [inboxNotifs count] > 0) {
+            [self initializeInboxWithCallback:^(BOOL success) {
+                if (success) {
+                    [self.dispatchQueueManager runSerialAsync:^{
+                        NSArray <NSDictionary*> *messages =  [inboxNotifs mutableCopy];;
+                        [self.inboxController updateMessages:messages];
+                    }];
+                }
+            }];
+        }
+    }
+}
+#endif
+
+- (void)handleFeatureFlagsResponse:(id)jsonResp {
+    NSDictionary *featureFlagsJSON = jsonResp[CLTAP_FEATURE_FLAGS_JSON_RESPONSE_KEY];
+    if (featureFlagsJSON) {
+        NSMutableArray *featureFlagsNotifs;
+        @try {
+            featureFlagsNotifs = [[NSMutableArray alloc] initWithArray:featureFlagsJSON[@"kv"]];
+        } @catch (NSException *e) {
+            CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Feature Flags JSON: %@", self, e.debugDescription);
+        }
+        if (featureFlagsNotifs && self.featureFlagsController) {
+            NSArray <NSDictionary*> *featureFlags =  [featureFlagsNotifs mutableCopy];
+            [self.featureFlagsController updateFeatureFlags:featureFlags];
+        }
+    }
+}
+
+- (void)handleProductConfigResponse:(id)jsonResp {
+    NSDictionary *productConfigJSON = jsonResp[CLTAP_PRODUCT_CONFIG_JSON_RESPONSE_KEY];
+    if (productConfigJSON) {
+        NSMutableArray *productConfigNotifs;
+        @try {
+            productConfigNotifs = [[NSMutableArray alloc] initWithArray:productConfigJSON[@"kv"]];
+        } @catch (NSException *e) {
+            CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Product Config JSON: %@", self, e.debugDescription);
+        }
+        if (productConfigNotifs && self.productConfigController) {
+            NSArray <NSDictionary*> *productConfig =  [productConfigNotifs mutableCopy];
+            [self.productConfigController updateProductConfig:productConfig];
+            NSString *lastFetchTs = productConfigJSON[@"ts"];
+            [self.productConfig updateProductConfigWithLastFetchTs:(long) [lastFetchTs longLongValue]];
+        }
+    }
+}
+
+#if !CLEVERTAP_NO_GEOFENCE_SUPPORT
+- (void)handleGeofencesResponse:(id)jsonResp {
+    NSArray *geofencesJSON = jsonResp[CLTAP_GEOFENCES_JSON_RESPONSE_KEY];
+    if (geofencesJSON) {
+        NSMutableArray *geofencesList;
+        @try {
+            geofencesList = [[NSMutableArray alloc] initWithArray:geofencesJSON];
+        } @catch (NSException *e) {
+            CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Geofences JSON: %@", self, e.debugDescription);
+        }
+        if (geofencesList) {
+            NSMutableDictionary *geofencesDict = [NSMutableDictionary new];
+            geofencesDict[@"geofences"] = geofencesList;
+            [CTUtils runSyncMainQueue: ^{
+                [[NSNotificationCenter defaultCenter] postNotificationName:CleverTapGeofencesDidUpdateNotification object:nil userInfo:geofencesDict];
+            }];
+        }
+    }
+}
+#endif
+
+- (void)parseResponse:(NSData *)responseData responseEncrypted:(BOOL)responseEncrypted {
     if (responseData) {
         @try {
+            if (responseEncrypted) {
+                if (@available(iOS 13.0, *)) {
+                    NSData *decryptedData = [[NetworkEncryptionManager shared]decryptWithResponseData:responseData];
+                    if (decryptedData.length > 0) {
+                        responseData = decryptedData;
+                    }
+                }
+                else {
+                    return;
+                }
+            }
+            
             id jsonResp = [NSJSONSerialization JSONObjectWithData:responseData options:NSJSONReadingMutableContainers error:nil];
             CleverTapLogInternal(self.config.logLevel, @"%@: Response: %@", self, jsonResp);
             
@@ -2325,100 +2527,50 @@ static BOOL sharedInstanceErrorLogged;
                 [self handleInAppResponse:jsonResp];
 #endif
                 
-#if !CLEVERTAP_NO_INBOX_SUPPORT
-                NSArray *inboxJSON = jsonResp[CLTAP_INBOX_MSG_JSON_RESPONSE_KEY];
-                if (inboxJSON) {
-                    NSMutableArray *inboxNotifs;
-                    @try {
-                        inboxNotifs = [[NSMutableArray alloc] initWithArray:inboxJSON];
-                    } @catch (NSException *e) {
-                        CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Inbox Message JSON: %@", self, e.debugDescription);
-                    }
-                    if (inboxNotifs && [inboxNotifs count] > 0) {
-                        [self initializeInboxWithCallback:^(BOOL success) {
-                            if (success) {
-                                [self.dispatchQueueManager runSerialAsync:^{
-                                    NSArray <NSDictionary*> *messages =  [inboxNotifs mutableCopy];;
-                                    [self.inboxController updateMessages:messages];
-                                }];
-                            }
-                        }];
-                    }
+#if !defined(CLEVERTAP_TVOS)
+                if (!self.isUserSwitching) {
+                    [self.contentFetchManager handleContentFetch:jsonResp];
+                } else if (jsonResp[CLTAP_CONTENT_FETCH_JSON_RESPONSE_KEY]) {
+                    CleverTapLogDebug(self.config.logLevel, @"%@: Content fetch response will not be handled due to user switch", self);
                 }
+#endif
+                
+#if !CLEVERTAP_NO_INBOX_SUPPORT
+                [self handleAppInboxResponse:jsonResp];
 #endif
                 
 #if !CLEVERTAP_NO_DISPLAY_UNIT_SUPPORT
-                NSArray *displayUnitJSON = jsonResp[CLTAP_DISPLAY_UNIT_JSON_RESPONSE_KEY];
-                if (displayUnitJSON) {
-                    NSMutableArray *displayUnitNotifs;
-                    @try {
-                        displayUnitNotifs = [[NSMutableArray alloc] initWithArray:displayUnitJSON];
-                    } @catch (NSException *e) {
-                        CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Display Unit JSON: %@", self, e.debugDescription);
-                    }
-                    if (displayUnitNotifs && [displayUnitNotifs count] > 0) {
-                        [self initializeDisplayUnitWithCallback:^(BOOL success) {
-                            if (success) {
-                                NSArray <NSDictionary*> *displayUnits = [displayUnitNotifs mutableCopy];
-                                [self.displayUnitController updateDisplayUnits:displayUnits];
-                            }
-                        }];
-                    }
-                }
+                [self handleDisplayUnitResponse:jsonResp];
 #endif
-                NSDictionary *featureFlagsJSON = jsonResp[CLTAP_FEATURE_FLAGS_JSON_RESPONSE_KEY];
-                if (featureFlagsJSON) {
-                    NSMutableArray *featureFlagsNotifs;
-                    @try {
-                        featureFlagsNotifs = [[NSMutableArray alloc] initWithArray:featureFlagsJSON[@"kv"]];
-                    } @catch (NSException *e) {
-                        CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Feature Flags JSON: %@", self, e.debugDescription);
-                    }
-                    if (featureFlagsNotifs && self.featureFlagsController) {
-                        NSArray <NSDictionary*> *featureFlags =  [featureFlagsNotifs mutableCopy];
-                        [self.featureFlagsController updateFeatureFlags:featureFlags];
-                    }
-                }
                 
-                NSDictionary *productConfigJSON = jsonResp[CLTAP_PRODUCT_CONFIG_JSON_RESPONSE_KEY];
-                if (productConfigJSON) {
-                    NSMutableArray *productConfigNotifs;
-                    @try {
-                        productConfigNotifs = [[NSMutableArray alloc] initWithArray:productConfigJSON[@"kv"]];
-                    } @catch (NSException *e) {
-                        CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Product Config JSON: %@", self, e.debugDescription);
-                    }
-                    if (productConfigNotifs && self.productConfigController) {
-                        NSArray <NSDictionary*> *productConfig =  [productConfigNotifs mutableCopy];
-                        [self.productConfigController updateProductConfig:productConfig];
-                        NSString *lastFetchTs = productConfigJSON[@"ts"];
-                        [self.productConfig updateProductConfigWithLastFetchTs:(long) [lastFetchTs longLongValue]];
-                    }
-                }
+                [self handleFeatureFlagsResponse:jsonResp];
+                [self handleProductConfigResponse:jsonResp];
                 
 #if !CLEVERTAP_NO_GEOFENCE_SUPPORT
-                NSArray *geofencesJSON = jsonResp[CLTAP_GEOFENCES_JSON_RESPONSE_KEY];
-                if (geofencesJSON) {
-                    NSMutableArray *geofencesList;
-                    @try {
-                        geofencesList = [[NSMutableArray alloc] initWithArray:geofencesJSON];
-                    } @catch (NSException *e) {
-                        CleverTapLogInternal(self.config.logLevel, @"%@: Error parsing Geofences JSON: %@", self, e.debugDescription);
-                    }
-                    if (geofencesList) {
-                        NSMutableDictionary *geofencesDict = [NSMutableDictionary new];
-                        geofencesDict[@"geofences"] = geofencesList;
-                        [CTUtils runSyncMainQueue: ^{
-                            [[NSNotificationCenter defaultCenter] postNotificationName:CleverTapGeofencesDidUpdateNotification object:nil userInfo:geofencesDict];
-                        }];
-                    }
-                }
+                [self handleGeofencesResponse:jsonResp];
 #endif
                 
-                // Handle and Cache PE Variables
+                // Handle PE Variables
                 NSDictionary *varsResponse = jsonResp[CLTAP_PE_VARS_RESPONSE_KEY];
                 if (varsResponse) {
-                    [[self variables] handleVariablesResponse: jsonResp[CLTAP_PE_VARS_RESPONSE_KEY]];
+                    // Do not handle variables if the user is switching. Do not trigger fetch variables callback.
+                    if (!self.isUserSwitching) {
+                        [[self variables] handleVariablesResponse: jsonResp[CLTAP_PE_VARS_RESPONSE_KEY]];
+                    } else {
+                        // Log only if variables are received in the response and will not be handled.
+                        CleverTapLogDebug(self.config.logLevel, @"%@: PE Variables will not be handled due to user switch", self);
+                    }
+                }
+                
+                // Handle Variants
+                NSArray *variantsResponse = jsonResp[CLTAP_PE_VARIANTS_RESPONSE_KEY];
+                if (variantsResponse) {
+                    if (!self.isUserSwitching) {
+                        [[self variables] handleVariantsResponse:variantsResponse];
+                    }
+                    else {
+                        CleverTapLogDebug(self.config.logLevel, @"%@: Variants will not be handled due to user switch", self);
+                    }
                 }
                 
                 // Handle events/profiles sync data
@@ -2500,7 +2652,13 @@ static BOOL sharedInstanceErrorLogged;
     return  currentGUID ? [NSString stringWithFormat:@"OptOut:%@", currentGUID] : nil;
 }
 
+- (NSString*)_optOutAllowSystemEventsKey {
+    NSString *currentGUID = self.deviceInfo.deviceId;
+    return  currentGUID ? [NSString stringWithFormat:@"%@:OptOutAllowSystemEvents:%@", self.config.accountId, currentGUID] : nil;
+}
+
 - (void)_setCurrentUserOptOutStateFromStorage {
+
     NSString *legacyKey = [self _legacyOptOutKey];
     NSString *key = [self _optOutKey];
     if (!key) {
@@ -2515,6 +2673,16 @@ static BOOL sharedInstanceErrorLogged;
     }
     CleverTapLogInternal(self.config.logLevel, @"Setting user optOut state from storage to: %@ for storageKey: %@", optedOut ? @"YES" : @"NO", key);
     self.currentUserOptedOut = optedOut;
+    // Set "allow system events" to the opposite of optout for legacy cases where "allow system events" wont be cached.
+    self.currentUserOptedOutAllowSystemEvents = !self.currentUserOptedOut;
+    NSString *allowSystemEventsKey = [self _optOutAllowSystemEventsKey];
+    if (!allowSystemEventsKey) {
+        CleverTapLogInternal(self.config.logLevel, @"Unable to set user optOut-allowSystemEvents state from storage: storage key is nil");
+        return;
+    }
+    self.currentUserOptedOutAllowSystemEvents = !optedOut;
+    self.currentUserOptedOutAllowSystemEvents = (BOOL) [CTPreferences getIntForKey:allowSystemEventsKey withResetValue:!optedOut];
+    CleverTapLogInternal(self.config.logLevel, @"Setting user optOut-allowSystemEvents state from storage to: %@ for storageKey: %@", self.currentUserOptedOutAllowSystemEvents ? @"YES" : @"NO", allowSystemEventsKey);
 }
 
 - (void)cacheGUIDSforProfile:(NSDictionary*)profileEvent {
@@ -2612,19 +2780,23 @@ static BOOL sharedInstanceErrorLogged;
     [self _asyncSwitchUser:properties withCachedGuid:cachedGUID andCleverTapID:cleverTapID forAction:kOnUserLoginAction];
 }
 
-- (void) _asyncSwitchUser:(NSDictionary *)properties withCachedGuid:(NSString *)cachedGUID andCleverTapID:(NSString *)cleverTapID forAction:(NSString*)action  {
-    
+- (void)_asyncSwitchUser:(NSDictionary *)properties withCachedGuid:(NSString *)cachedGUID andCleverTapID:(NSString *)cleverTapID forAction:(NSString*)action  {
     [self.dispatchQueueManager runSerialAsync:^{
         CleverTapLogDebug(self.config.logLevel, @"%@: async switching user with properties:  %@", action, properties);
         
+        self.isUserSwitching = YES;
+        
         // set OptOut to false for the old user
         self.currentUserOptedOut = NO;
+        self.currentUserOptedOutAllowSystemEvents = YES;
         
         // unregister the push token on the current user
         [self pushDeviceTokenWithAction:CleverTapPushTokenUnregister];
         
         // clear any events in the queue
         [self clearQueue];
+        
+        [[self delegateManager] notifyDelegatesDeviceIdWillChange];
         
         // clear ARP and other context for the old user
         [self clearUserContext];
@@ -2644,6 +2816,9 @@ static BOOL sharedInstanceErrorLogged;
         [self.localDataStore changeUser];
         
         [self recordDeviceErrors];
+        
+        self.isUserSwitching = NO;
+        
         [[self delegateManager] notifyDelegatesDeviceIdDidChange:self.deviceInfo.deviceId];
         
         [self _setCurrentUserOptOutStateFromStorage];  // be sure to do this AFTER updating the GUID
@@ -2758,14 +2933,35 @@ static BOOL sharedInstanceErrorLogged;
 #pragma mark - Profile API
 
 - (void)setOptOut:(BOOL)enabled {
-    [self.dispatchQueueManager runSerialAsync:^ {
-        CleverTapLogDebug(self.config.logLevel, @"%@: User: %@ OptOut set to: %@", self, self.deviceInfo.deviceId, enabled ? @"YES" : @"NO");
-        NSDictionary *profile = @{CLTAP_OPTOUT: @(enabled)};
+    [self setOptOut:enabled allowSystemEvents:!enabled];
+}
+
+- (void)setOptOut:(BOOL)enabled allowSystemEvents:(BOOL)allowSystemEvents {
+    [self.dispatchQueueManager runSerialAsync:^{
+        CleverTapLogDebug(self.config.logLevel,
+                          @"%@: User: %@ OptOut set to: %@, allowSystemEvents set to: %@",
+                          self, self.deviceInfo.deviceId,
+                          enabled ? @"YES" : @"NO",
+                          allowSystemEvents ? @"YES" : @"NO");
+        
+        // setOptOut = false, allowSystemEvents = false
+        BOOL resolvedAllowSystemEvents = !enabled || allowSystemEvents;
+
+        NSDictionary *profile = @{
+            CLTAP_OPTOUT: @(enabled),
+            CLTAP_ALLOW_SYSTEM_EVENTS: @(resolvedAllowSystemEvents)
+        };
         if (enabled) {
+            // We set currentUserOptedOut as NO to unblock the profile push when a change in AllowSystemEvents needs to be pushed to profile
+            if (self.currentUserOptedOutAllowSystemEvents != resolvedAllowSystemEvents) {
+                self.currentUserOptedOut = NO;
+            }
             [self profilePush:profile];
             self.currentUserOptedOut = enabled;  // if opting out set this after processing the profile event that updates the server optOut state
+            self.currentUserOptedOutAllowSystemEvents = resolvedAllowSystemEvents;
         } else {
             self.currentUserOptedOut = enabled;  // if opting back in set this before processing the profile event that updates the server optOut state
+            self.currentUserOptedOutAllowSystemEvents = resolvedAllowSystemEvents;
             [self profilePush:profile];
         }
         NSString *key = [self _optOutKey];
@@ -2774,8 +2970,16 @@ static BOOL sharedInstanceErrorLogged;
             return;
         }
         [CTPreferences putInt:enabled forKey:key];
+        
+        NSString *allowSystemEventsKey = [self _optOutAllowSystemEventsKey];
+        if (!allowSystemEventsKey) {
+            CleverTapLogInternal(self.config.logLevel, @"unable to store user optOut-allowSystemEventsKey, optOut-allowSystemEventsKey is nil");
+            return;
+        }
+        [CTPreferences putInt:resolvedAllowSystemEvents forKey:allowSystemEventsKey];
     }];
 }
+
 - (void)setOffline:(BOOL)offline {
     _offline = offline;
     if (_offline) {
@@ -3524,7 +3728,7 @@ static BOOL sharedInstanceErrorLogged;
     return [self sessionGetUTMDetails];
 }
 
-#if defined(CLEVERTAP_HOST_WATCHOS)
+#if !TARGET_OS_TV
 - (BOOL)handleMessage:(NSDictionary<NSString *, id> *_Nonnull)message forWatchSession:(WCSession *_Nonnull)session  {
     NSString *type = [message objectForKey:@"clevertap_type"];
     
@@ -3536,7 +3740,6 @@ static BOOL sharedInstanceErrorLogged;
     return handled;
 }
 #endif
-
 
 #pragma mark - App Inbox
 
@@ -3568,7 +3771,7 @@ static BOOL sharedInstanceErrorLogged;
             return;
         }
         if (self.deviceInfo.deviceId) {
-            self.inboxController = [[CTInboxController alloc] initWithAccountId: [self.config.accountId copy] guid: [self.deviceInfo.deviceId copy]];
+            self.inboxController = [[CTInboxController alloc] initWithAccountId: [self.config.accountId copy] guid: [self.deviceInfo.deviceId copy] encryptionLevel:self.config.encryptionLevel previousEncryptionLevel:self.config.cryptManager.previousEncryptionLevel encryptionManager:self.config.cryptManager];
             self.inboxController.delegate = self;
             [CTUtils runSyncMainQueue: ^{
                 callback(self.inboxController.isInitialized);
@@ -3723,7 +3926,7 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)_resetInbox {
     if (self.inboxController && self.inboxController.isInitialized && self.deviceInfo.deviceId) {
-        self.inboxController = [[CTInboxController alloc] initWithAccountId: [self.config.accountId copy] guid: [self.deviceInfo.deviceId copy]];
+        self.inboxController = [[CTInboxController alloc] initWithAccountId: [self.config.accountId copy] guid: [self.deviceInfo.deviceId copy] encryptionLevel:self.config.encryptionLevel previousEncryptionLevel:self.config.cryptManager.previousEncryptionLevel encryptionManager:self.config.cryptManager];
         self.inboxController.delegate = self;
     }
 }
@@ -4247,7 +4450,6 @@ static BOOL sharedInstanceErrorLogged;
     return nil;
 }
 
-
 #pragma mark - Geofence Public APIs
 
 - (void)didFailToRegisterForGeofencesWithError:(NSError *)error {
@@ -4304,40 +4506,18 @@ static BOOL sharedInstanceErrorLogged;
     }
     if (delegate && [delegate conformsToProtocol:@protocol(CleverTapDomainDelegate)]) {
         _domainDelegate = delegate;
+        [self.domainFactory setDomainDelegate:delegate];
     } else {
         CleverTapLogDebug(self.config.logLevel, @"%@: CleverTap Domain Delegate does not conform to the CleverTapDomainDelegate protocol", self);
     }
 }
 
-- (void)onDomainAvailable {
-    NSString *dcDomain = [self getDomainString];
-    if (self.domainDelegate && [self.domainDelegate respondsToSelector:@selector(onSCDomainAvailable:)]) {
-        [self.domainDelegate onSCDomainAvailable: dcDomain];
-    } else if (dcDomain == nil) {
-        [self onDomainUnavailable];
-    }
+- (NSString *)signedCallDomain {
+    return self.domainFactory.signedCallDomain;
 }
 
-- (void)onDomainUnavailable {
-    if (self.domainDelegate && [self.domainDelegate respondsToSelector:@selector(onSCDomainUnavailable)]) {
-        [self.domainDelegate onSCDomainUnavailable];
-    }
-}
-
-//Updates the format of the domain - from `in1.clevertap-prod.com` to region.auth.domain (i.e. in1.auth.clevertap-prod.com)
 - (NSString *)getDomainString {
-    if (self.domainFactory.redirectDomain != nil) {
-        NSArray *listItems = [self.domainFactory.redirectDomain componentsSeparatedByString:@"."];
-        NSString *domainItem = [listItems[0] stringByAppendingString:@".auth"];
-        for (int i = 1; i < listItems.count; i++ ) {
-            NSString *dotString = [@"." stringByAppendingString: listItems[i]];
-            domainItem = [domainItem stringByAppendingString: dotString];
-        }
-        self.signedCallDomain = domainItem;
-        return domainItem;
-    } else {
-        return nil;
-    }
+    return [self.domainFactory domainString];
 }
 
 #pragma mark - Push Permission
@@ -4386,7 +4566,7 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)syncVariables:(BOOL)isProduction {
     NSDictionary *varsPayload = [[self variables] varsPayload];
-    [self syncWithBlock:^{
+    [self syncWithBlock:^(BOOL success) {
         NSDictionary *meta = [self batchHeaderForQueue:CTQueueTypeUndefined];
         CTRequest *ctRequest = [CTRequestFactory syncVarsRequestWithConfig:self.config params:@[meta, varsPayload] domain:self.domainFactory.redirectDomain];
         [self syncRequest:ctRequest logMessage:@"Vars sync"];
@@ -4400,7 +4580,7 @@ static BOOL sharedInstanceErrorLogged;
 
 - (void)syncCustomTemplates:(BOOL)isProduction {
     NSDictionary *syncPayload = [[self customTemplatesManager] syncPayload];
-    [self syncWithBlock:^{
+    [self syncWithBlock:^(BOOL success) {
         NSDictionary *meta = [self batchHeaderForQueue:CTQueueTypeUndefined];
         CTRequest *ctRequest = [CTRequestFactory syncTemplatesRequestWithConfig:self.config params:@[meta, syncPayload] domain:self.domainFactory.redirectDomain];
         [self syncRequest:ctRequest logMessage:@"Define Custom Templates"];
@@ -4408,17 +4588,17 @@ static BOOL sharedInstanceErrorLogged;
 }
 #endif
 
-- (void)syncWithBlock:(void(^)(void))syncBlock methodName:(NSString *)methodName isProduction:(BOOL)isProduction {
+- (void)syncWithBlock:(void(^)(BOOL success))syncBlock methodName:(NSString *)methodName isProduction:(BOOL)isProduction {
     if (isProduction) {
 #if DEBUG
         CleverTapLogInfo(_config.logLevel, @"%@: Calling %@ with isProduction:YES from Debug configuration/build. Do not use isProduction:YES in this case", self, methodName);
 #else
         CleverTapLogInfo(_config.logLevel, @"%@: Calling %@ with isProduction:YES from Release configuration/build. Do not release this build and use with caution", self, methodName);
 #endif
-        [self runSerialAsyncEnsureHandshake:syncBlock];
+        [self.domainFactory runSerialAsyncEnsureHandshake:syncBlock];
     } else {
 #if DEBUG
-        [self runSerialAsyncEnsureHandshake:syncBlock];
+        [self.domainFactory runSerialAsyncEnsureHandshake:syncBlock];
 #else
         CleverTapLogInfo(_config.logLevel, @"%@: %@ can only be called from Debug configurations/builds", self, methodName);
 #endif
@@ -4443,10 +4623,10 @@ static BOOL sharedInstanceErrorLogged;
                      logMessage:(NSString *)logMessage {
     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        if (httpResponse.statusCode == 200) {
+        if (httpResponse.statusCode == HTTP_OK) {
             CleverTapLogDebug(self->_config.logLevel, @"%@: %@ successful.", self, logMessage);
         }
-        else if (httpResponse.statusCode == 401) {
+        else if (httpResponse.statusCode == HTTP_UNAUTHORIZED) {
             CleverTapLogDebug(self->_config.logLevel, @"%@: Unauthorized access from a non-test profile. Please mark this profile as a test profile from the CleverTap dashboard.", self);
         }
     }
@@ -4483,6 +4663,17 @@ static BOOL sharedInstanceErrorLogged;
 
 - (id _Nullable)getVariableValue:(NSString * _Nonnull)name {
     return [[self.variables varCache] getMergedValue:name];
+}
+
+- (NSArray<NSDictionary<NSString *, id> *> *)variants
+{
+    CT_TRY
+    NSArray *variants = [self.variables.varCache variants];
+    if (variants) {
+        return [variants copy];
+    }
+    CT_END_TRY
+    return [NSArray array];
 }
 
 - (void)onVariablesChangedAndNoDownloadsPending:(CleverTapVariablesChangedBlock _Nonnull )block {
@@ -4607,5 +4798,27 @@ static BOOL sharedInstanceErrorLogged;
 - (CTVar *)defineFileVar:(NSString *)name {
     return [self.variables define:name with:nil kind:CT_KIND_FILE];
 }
+
+#pragma mark - CTContentFetchManagerDelegate
+
+#if !defined(CLEVERTAP_TVOS)
+
+- (NSDictionary *)contentFetchManagerGetBatchHeader:(CTContentFetchManager *)manager {
+    return [self batchHeaderForQueue:CTQueueTypeUndefined];
+}
+
+- (void)contentFetchManager:(CTContentFetchManager *)manager didReceiveResponse:(NSData *)data {
+    [self parseResponse:data responseEncrypted:NO];
+}
+
+- (void)contentFetchManager:(CTContentFetchManager *)manager addMetadataToEvent:(NSMutableDictionary *)event ofType:(CleverTapEventType)eventType {
+    [self addEventMeta:eventType mutableEvent:event];
+}
+
+- (void)contentFetchManager:(CTContentFetchManager *)manager didFailWithError:(NSError *)error {
+    CleverTapLogDebug(self.config.logLevel, @"%@: Content fetch failed with error: %@", self, error);
+}
+
+#endif
 
 @end

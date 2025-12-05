@@ -96,6 +96,9 @@ static NSArray *registeredURLSchemes;
         
         _handshakeDomain = [CTPlistInfo getMetaDataForAttribute:CLTAP_HANDSHAKE_DOMAIN];
         
+        NSString *encryptionInTransitEnabled = [CTPlistInfo getMetaDataForAttribute:CLTAP_ENCRYPTION_IN_TRANSIT_ENABLED];
+        _encryptionInTransitEnabled = (encryptionInTransitEnabled && [encryptionInTransitEnabled isEqualToString:@"1"]);
+        
         NSString *encryptionLevel = [CTPlistInfo getMetaDataForAttribute:CLTAP_ENCRYPTION_LEVEL];
         [self setEncryption:encryptionLevel];
     }
@@ -134,9 +137,13 @@ static NSArray *registeredURLSchemes;
         _encryptionLevel = CleverTapEncryptionNone;
     } else if (encryptionLevel && [encryptionLevel isEqualToString:@"1"]) {
         _encryptionLevel = CleverTapEncryptionMedium;
-    } else {
+    }
+    else if (encryptionLevel && [encryptionLevel isEqualToString:@"2"]) {
+        _encryptionLevel = CleverTapEncryptionHigh;
+    }
+    else {
         _encryptionLevel = CleverTapEncryptionNone;
-        CleverTapLogStaticInternal(@"Supported encryption levels are only 0 and 1. Setting it to 0 by default");
+        CleverTapLogStaticInternal(@"Supported encryption levels are only 0, 1 and 2. Setting it to 0 by default");
     }
 }
 
