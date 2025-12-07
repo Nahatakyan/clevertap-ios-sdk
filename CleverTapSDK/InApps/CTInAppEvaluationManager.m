@@ -139,15 +139,8 @@
 - (void)evaluateOnAppLaunchedServerSide:(NSArray *)appLaunchedNotifs {
     CTEventAdapter *event = [[CTEventAdapter alloc] initWithEventName:CLTAP_APP_LAUNCHED_EVENT eventProperties:self.appLaunchedProperties andLocation:self.location];
     NSMutableArray *eligibleInApps = [self evaluate:event withInApps:appLaunchedNotifs];
-    [self sortByPriority:eligibleInApps];
-    for (NSDictionary *inApp in eligibleInApps) {
-        if (![self shouldSuppress:inApp]) {
-            [self.inAppDisplayManager _addInAppNotificationsToQueue:@[inApp]];
-            break;
-        }
-        
-        [self suppress:inApp];
-    }
+    // Server-side evaluations do **NOT** update TTL
+    [self _processEligibleInApps:eligibleInApps shouldUpdateTTL:NO];
 }
 
 - (void)evaluateClientSide:(NSArray<CTEventAdapter *> *)events {
@@ -160,18 +153,8 @@
         }
         [eligibleInApps addObjectsFromArray:[self evaluate:event withInApps:self.inAppStore.clientSideInApps]];
     }
-    [self sortByPriority:eligibleInApps];
-    
-    for (NSDictionary *inApp in eligibleInApps) {
-        if (![self shouldSuppress:inApp]) {
-            NSMutableDictionary  *mutableInApp = [inApp mutableCopy];
-            [self updateTTL:mutableInApp];
-            [self.inAppDisplayManager _addInAppNotificationsToQueue:@[mutableInApp]];
-            break;
-        }
-        
-        [self suppress:inApp];
-    }
+    // Client-side evaluations **DO** update TTL
+    [self _processEligibleInApps:eligibleInApps shouldUpdateTTL:YES];
 }
 
 - (void)evaluateServerSide:(NSArray<CTEventAdapter *> *)events withQueueType:(CTQueueType)queueType{
@@ -244,12 +227,9 @@
     if (success) {
         NSDictionary *header = batchWithHeader[0];
         if (queueType == CTQueueTypeEvents) {
-            [self removeSentEvaluatedServerSideInAppIds:header];
-            [self removeSentSuppressedClientSideInApps:header];
-        }
-        else if (queueType == CTQueueTypeProfile) {
-            [self removeSentEvaluatedServerSideInAppIdsForProfile:header];
-            [self removeSentSuppressedClientSideInAppsForProfile:header];
+            // For combined queues, clean up both events and profile arrays proportionally
+            [self removeSentEvaluatedServerSideInAppIdsForCombined:header];
+            [self removeSentSuppressedClientSideInAppsForCombined:header];
         }
     }
 }
@@ -262,42 +242,104 @@
     self.hasAppLaunchedFailed = !success;
 }
 
-- (void)removeSentEvaluatedServerSideInAppIds:(NSDictionary *)header {
+- (void)removeSentEvaluatedServerSideInAppIdsForCombined:(NSDictionary *)header {
     NSArray *inapps_eval = header[CLTAP_INAPP_SS_EVAL_META_KEY];
     if (inapps_eval && [inapps_eval count] > 0) {
-        NSUInteger len = inapps_eval.count > self.evaluatedServerSideInAppIds.count ?  self.evaluatedServerSideInAppIds.count : inapps_eval.count;
-        [self.evaluatedServerSideInAppIds removeObjectsInRange:NSMakeRange(0, len)];
-        [self saveEvaluatedServerSideInAppIds];
+        // Remove from events array first, then profiles
+        NSUInteger eventsCount = [self.evaluatedServerSideInAppIds count];
+        NSUInteger profilesCount = [self.evaluatedServerSideInAppIdsForProfile count];
+        NSUInteger totalToRemove = [inapps_eval count];
+        
+        // Remove from events array
+        NSUInteger removeFromEvents = MIN(eventsCount, totalToRemove);
+        if (removeFromEvents > 0) {
+            [self.evaluatedServerSideInAppIds removeObjectsInRange:NSMakeRange(0, removeFromEvents)];
+            [self saveEvaluatedServerSideInAppIds];
+            totalToRemove -= removeFromEvents;
+        }
+        
+        // Remove remaining from profiles array
+        if (totalToRemove > 0) {
+            NSUInteger removeFromProfiles = MIN(profilesCount, totalToRemove);
+            if (removeFromProfiles > 0) {
+                [self.evaluatedServerSideInAppIdsForProfile removeObjectsInRange:NSMakeRange(0, removeFromProfiles)];
+                [self saveEvaluatedServerSideInAppIdsForProfile];
+            }
+        }
     }
 }
 
-- (void)removeSentSuppressedClientSideInApps:(NSDictionary *)header {
-    NSArray *suppresed_inapps = header[CLTAP_INAPP_SUPPRESSED_META_KEY];
-    if (suppresed_inapps && [suppresed_inapps count] > 0) {
-        NSUInteger len = suppresed_inapps.count > self.suppressedClientSideInApps.count ?  self.suppressedClientSideInApps.count : suppresed_inapps.count;
-        [self.suppressedClientSideInApps removeObjectsInRange:NSMakeRange(0, len)];
-        [self saveSuppressedClientSideInApps];
+- (void)removeSentSuppressedClientSideInAppsForCombined:(NSDictionary *)header {
+    NSArray *suppressed_inapps = header[CLTAP_INAPP_SUPPRESSED_META_KEY];
+    if (suppressed_inapps && [suppressed_inapps count] > 0) {
+        // Remove from events array first, then profiles
+        NSUInteger eventsCount = [self.suppressedClientSideInApps count];
+        NSUInteger profilesCount = [self.suppressedClientSideInAppsForProfile count];
+        NSUInteger totalToRemove = [suppressed_inapps count];
+        
+        // Remove from events array
+        NSUInteger removeFromEvents = MIN(eventsCount, totalToRemove);
+        if (removeFromEvents > 0) {
+            [self.suppressedClientSideInApps removeObjectsInRange:NSMakeRange(0, removeFromEvents)];
+            [self saveSuppressedClientSideInApps];
+            totalToRemove -= removeFromEvents;
+        }
+        
+        // Remove remaining from profiles array
+        if (totalToRemove > 0) {
+            NSUInteger removeFromProfiles = MIN(profilesCount, totalToRemove);
+            if (removeFromProfiles > 0) {
+                [self.suppressedClientSideInAppsForProfile removeObjectsInRange:NSMakeRange(0, removeFromProfiles)];
+                [self saveSuppressedClientSideInAppsForProfile];
+            }
+        }
     }
 }
 
-- (void)removeSentEvaluatedServerSideInAppIdsForProfile:(NSDictionary *)header {
-    NSArray *inapps_eval = header[CLTAP_INAPP_SS_EVAL_META_KEY];
-    if (inapps_eval && [inapps_eval count] > 0) {
-        NSUInteger len = inapps_eval.count > self.evaluatedServerSideInAppIdsForProfile.count ?  self.evaluatedServerSideInAppIdsForProfile.count : inapps_eval.count;
-        [self.evaluatedServerSideInAppIdsForProfile removeObjectsInRange:NSMakeRange(0, len)];
-        [self saveEvaluatedServerSideInAppIdsForProfile];
+- (void)_processEligibleInApps:(NSArray<NSDictionary *> *)eligibleInApps
+               shouldUpdateTTL:(BOOL)shouldUpdateTTL {
+    if (eligibleInApps.count == 0) return;
+    
+    // Sort by priority
+    NSMutableArray *sorted = [eligibleInApps mutableCopy];
+    [self sortByPriority:sorted];
+    
+    // Partition into delayed + immediate
+    NSDictionary<NSString *, NSArray *> *partitioned =
+    [self.inAppStore partitionInApps:sorted];
+    
+    NSArray *delayedQueue   = partitioned[@"delayed"] ?: @[];
+    NSArray *immediateQueue = partitioned[@"immediate"] ?: @[];
+    
+    // Handle all delayed in-apps
+    for (NSDictionary *inApp in delayedQueue) {
+        [self processInApp:inApp allowOnlyFirst:NO shouldUpdate:shouldUpdateTTL];
+    }
+    
+    // Handle the first immediate in-app
+    for (NSDictionary *inApp in immediateQueue) {
+        if ([self processInApp:inApp allowOnlyFirst:YES shouldUpdate:shouldUpdateTTL]) {
+            break;
+        }
     }
 }
 
-- (void)removeSentSuppressedClientSideInAppsForProfile:(NSDictionary *)header {
-    NSArray *suppresed_inapps = header[CLTAP_INAPP_SUPPRESSED_META_KEY];
-    if (suppresed_inapps && [suppresed_inapps count] > 0) {
-        NSUInteger len = suppresed_inapps.count > self.suppressedClientSideInAppsForProfile.count ?  self.suppressedClientSideInAppsForProfile.count : suppresed_inapps.count;
-        [self.suppressedClientSideInAppsForProfile removeObjectsInRange:NSMakeRange(0, len)];
-        [self saveSuppressedClientSideInAppsForProfile];
+- (BOOL)processInApp:(NSDictionary *)inApp allowOnlyFirst:(BOOL)onlyOne shouldUpdate:(BOOL)updateTTL{
+    BOOL suppressed = [self shouldSuppress:inApp];
+    
+    if (suppressed) {
+        [self suppress:inApp];
+        return NO;
     }
+    
+    NSMutableDictionary *mutable = [inApp mutableCopy];
+    if (updateTTL) {
+        [self.inAppStore updateTTL:mutable];
+    }
+    [self.inAppDisplayManager _addInAppNotificationsToQueue:@[mutable]];
+    
+    return onlyOne;
 }
-
 
 - (BOOL)shouldSuppress:(NSDictionary *)inApp {
     return [inApp[CLTAP_INAPP_IS_SUPPRESSED] boolValue];
@@ -321,6 +363,12 @@
 }
 
 - (void)sortByPriority:(NSMutableArray *)inApps {
+    NSNumber *(^delay)(NSDictionary *) = ^NSNumber *(NSDictionary *inApp) {
+        NSNumber *d = inApp[CLTAP_DELAY_AFTER_TRIGGER];
+           if (d != nil) return d;
+           return @(0); // default to 0 if missing
+       };
+    
     NSNumber *(^priority)(NSDictionary *) = ^NSNumber *(NSDictionary *inApp) {
         NSNumber *priority = inApp[CLTAP_INAPP_PRIORITY];
         if (priority != nil) {
@@ -340,6 +388,12 @@
         return [NSNumber numberWithDouble:[[NSDate date] timeIntervalSince1970]];
     };
     
+    // Sort by delay ascending
+    NSSortDescriptor *sortByDelayDescriptor =
+    [NSSortDescriptor sortDescriptorWithKey:nil ascending:YES comparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [delay(a) compare:delay(b)];
+    }];
+    
     // Sort by priority descending since 100 is highest priority and 1 is lowest
     NSSortDescriptor* sortByPriorityDescriptor = [NSSortDescriptor sortDescriptorWithKey:nil ascending:NO comparator:^NSComparisonResult(NSDictionary *inAppA, NSDictionary *inAppB) {
         NSNumber *priorityA = priority(inAppA);
@@ -354,8 +408,9 @@
         return [ti(inAppA) compare:ti(inAppB)];
     }];
 
-    // Sort by priority then by timestamp if priority is same
-    [inApps sortUsingDescriptors:@[sortByPriorityDescriptor, sortByTimestampDescriptor]];
+    // Sort by delay theny by priority if delay is same
+    //then by timestamp if priority is same
+    [inApps sortUsingDescriptors:@[sortByDelayDescriptor, sortByPriorityDescriptor, sortByTimestampDescriptor]];
 }
 
 - (NSString *)generateWzrkId:(NSString *)ti {
@@ -366,43 +421,42 @@
     return wzrk_id;
 }
 
-- (void)updateTTL:(NSMutableDictionary *)inApp {
-    NSNumber *offset = inApp[CLTAP_INAPP_CS_TTL_OFFSET];
-    if (offset != nil) {
-        NSInteger now = [[NSDate date] timeIntervalSince1970];
-        NSInteger ttl = now + [offset longValue];
-        [inApp setObject:[NSNumber numberWithLong:ttl] forKey:CLTAP_INAPP_TTL];
-    } else {
-        // Remove TTL, since it cannot be calculated based on the TTL offset
-        // The default TTL will be set in CTInAppNotification
-        [inApp removeObjectForKey:CLTAP_INAPP_TTL];
-    }
-}
-
 - (BatchHeaderKeyPathValues)onBatchHeaderCreationForQueue:(CTQueueType)queueType {
-    // Evaluation is done for events only at the moment,
-    // send the evaluated and suppressed ids in that queue header
-    if (queueType != CTQueueTypeEvents && queueType != CTQueueTypeProfile) {
-        return [NSMutableDictionary new];
-    }
-    NSMutableDictionary *header = [NSMutableDictionary new];
-    if (queueType == CTQueueTypeProfile) {
-        if ([self.evaluatedServerSideInAppIdsForProfile count] > 0) {
-            header[CLTAP_INAPP_SS_EVAL_META_KEY] = self.evaluatedServerSideInAppIdsForProfile;
-        }
-        if ([self.suppressedClientSideInAppsForProfile count] > 0) {
-            header[CLTAP_INAPP_SUPPRESSED_META_KEY] = self.suppressedClientSideInAppsForProfile;
-        }
-    }
-    else {
-        if ([self.evaluatedServerSideInAppIds count] > 0) {
-            header[CLTAP_INAPP_SS_EVAL_META_KEY] = self.evaluatedServerSideInAppIds;
-        }
-        if ([self.suppressedClientSideInApps count] > 0) {
-            header[CLTAP_INAPP_SUPPRESSED_META_KEY] = self.suppressedClientSideInApps;
-        }
-    }
-    return header;
+   // Evaluation is done for events and profiles,
+   // send the evaluated and suppressed ids in that queue header
+   if (queueType != CTQueueTypeEvents && queueType != CTQueueTypeProfile) {
+       return [NSMutableDictionary new];
+   }
+   
+   NSMutableDictionary *header = [NSMutableDictionary new];
+   
+   // For combined queues, merge both events and profile arrays
+   if (queueType == CTQueueTypeEvents) {
+       // Combine evaluated IDs from both events and profiles
+       NSMutableArray *combinedEvaluatedIds = [NSMutableArray array];
+       if ([self.evaluatedServerSideInAppIds count] > 0) {
+           [combinedEvaluatedIds addObjectsFromArray:self.evaluatedServerSideInAppIds];
+       }
+       if ([self.evaluatedServerSideInAppIdsForProfile count] > 0) {
+           [combinedEvaluatedIds addObjectsFromArray:self.evaluatedServerSideInAppIdsForProfile];
+       }
+       if ([combinedEvaluatedIds count] > 0) {
+           header[CLTAP_INAPP_SS_EVAL_META_KEY] = combinedEvaluatedIds;
+       }
+       
+       // Combine suppressed IDs from both events and profiles
+       NSMutableArray *combinedSuppressedIds = [NSMutableArray array];
+       if ([self.suppressedClientSideInApps count] > 0) {
+           [combinedSuppressedIds addObjectsFromArray:self.suppressedClientSideInApps];
+       }
+       if ([self.suppressedClientSideInAppsForProfile count] > 0) {
+           [combinedSuppressedIds addObjectsFromArray:self.suppressedClientSideInAppsForProfile];
+       }
+       if ([combinedSuppressedIds count] > 0) {
+           header[CLTAP_INAPP_SUPPRESSED_META_KEY] = combinedSuppressedIds;
+       }
+   }
+   return header;
 }
 
 - (void)saveEvaluatedServerSideInAppIds {

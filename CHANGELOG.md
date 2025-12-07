@@ -1,6 +1,69 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+### [Version 7.4.1](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.4.1) (December 02, 2025)
+#### Added
+- Adds a public method called `variants` to fetch A/B experiment variants for the user.
+
+#### Fixed
+- Fixes a bug where `App Launched` events were being recorded when the app was woken up by silent push notifications.
+- Fixes a bug where HTML inapp previews weren't rendering gradient colors.
+
+### [Version 7.4.0](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.4.0) (November 21, 2025)
+#### Added
+- Adds support for previewing all types of InApps from the dashboard.
+- Extends the `discardInAppNotifications()` method to support an optional `dismissInAppIfVisible` parameter to control whether an active InApp notification should be immediately dismissed.
+- Adds support for delayed InApp notifications.
+- Adds support for complete encryption of all data stored in the SDK. Please refer to [Encryption.md](/docs/Encryption.md) file to read more on how to enable/disable encryption.
+
+> ⚠️ **NOTE**
+After upgrading the SDK to v7.4.0+, do not downgrade in subsequent app releases if you have enabled additional encryption. If you encounter any issues, please contact the CleverTap support team for assistance.
+
+### [Version 7.3.4](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.3.4) (October 29, 2025)
+#### Fixed
+- Mitigates a potential crash related to Core Data concurrency for App Inbox.
+- Fixes a bug where multiple profiles were created when `onUserLogin` was called via a custom CleverTap instance.
+- Fixes conflicts with SDWebImage when apps used other packages also using SDWebImage via Swift Package Manager.
+
+### [Version 7.3.3](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.3.3) (September 11, 2025)
+#### Fixed
+- Fixes a bug where the updated values of variables were not fetched right after a profile push.
+- Optimises queuing behaviour of various type of clevertap events in a single batch.
+
+### [Version 7.3.2](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.3.2) (August 08, 2025)
+#### Added
+- Added Swift Package Manager (SPM) support for `CleverTapWatchOS`.
+
+#### Fixed
+- Fixes a crash in `CTInAppHTMLViewController` when HTML InApp is presented.
+- Fixes Push Primer class methods not exposed when integrated via SPM.
+- Mitigates a potential error attempted to dereference garbage pointer in `persistOrClearQueues` when app is killed.
+
+### [Version 7.3.1](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.3.1) (July 15, 2025)
+
+#### Fixed
+- Fixed a bug where some system events were dropped in case of partial opt-outs.
+
+### [Version 7.3.0](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.3.0) (July 11, 2025)
+
+#### Added
+- Introduces support for linked content within `Native Display` units, enabling richer interactive experiences.
+- Enhances security by implementing encryption in transit for all SDK network communications.
+- Improves `GDPR` opt-out functionality by adding an option to allow critical system events while respecting user privacy choices.
+- Introduces enhanced tracking for Push Primer local In-App button interactions, providing additional parameters in callbacks:
+    * The `onDismissed` callback now includes `actionExtras` with `wzrk_c2a` (button text) and `wzrk_id` when a button is interacted with.
+
+#### Fixed
+- Fixes a `No new templates are synced` error while syncing new custom templates.
+- Fixes a Local Push Primer crash when asking for push permission using promptForPushPermission
+
+### [Version 7.2.1](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.2.1) (June 27, 2025)
+
+#### Added
+* Adds Accessibility support for the `App-Inbox` and `In-app messages` channels.
+* Adds an overloaded API to support setting a contentDescription for the image in a PushPrimer to improve accessibility.
+  * `- (void)setImageUrl:(NSString *)imageUrl contentDescription:(NSString * _Nullable)contentDescription`: Sets the content description for the image to improve accessibility.
+
 ### [Version 7.2.0](https://github.com/CleverTap/clevertap-ios-sdk/releases/tag/7.2.0) (May 27, 2025)
 
 #### Added

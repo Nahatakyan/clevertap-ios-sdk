@@ -16,8 +16,10 @@
 @interface CTRequestSender ()
 @property (nonatomic, strong) CleverTapInstanceConfig *config;
 @property (nonatomic, strong) NSURLSession *urlSession;
-@property (nonatomic, strong) NSString *redirectDomain;
 @property (nonatomic, assign, readonly) BOOL sslPinningEnabled;
+
+@property (nonatomic, assign, readwrite) NSTimeInterval requestTimeout;
+@property (nonatomic, assign, readwrite) NSTimeInterval resourceTimeout;
 
 #if CLEVERTAP_SSL_PINNING
 @property(nonatomic, strong) CTPinnedNSURLSessionDelegate *urlSessionDelegate;
@@ -27,26 +29,51 @@
 
 @implementation CTRequestSender
 
-- (instancetype _Nonnull)initWithConfig:(CleverTapInstanceConfig *_Nonnull)config redirectDomain:(NSString* _Nonnull)redirectDomain {
-    
+- (instancetype)initWithConfig:(CleverTapInstanceConfig *)config redirectDomain:(NSString * _Nullable)redirectDomain {
+    return [self initWithConfig:config
+          redirectDomain:redirectDomain
+          requestTimeout:CLTAP_REQUEST_TIME_OUT_INTERVAL
+         resourceTimeout:CLTAP_REQUEST_TIME_OUT_INTERVAL];
+}
+
+- (instancetype)initWithConfig:(CleverTapInstanceConfig *)config
+                redirectDomain:(NSString * _Nullable)redirectDomain
+                requestTimeout:(NSTimeInterval)requestTimeout
+               resourceTimeout:(NSTimeInterval)resourceTimeout {
     if ((self = [super init])) {
         self.config = config;
         self.redirectDomain = redirectDomain;
+        self.requestTimeout = requestTimeout;
+        self.resourceTimeout = resourceTimeout;
         [self setUpUrlSession];
-
     }
     return self;
 }
 
 #if CLEVERTAP_SSL_PINNING
-- (instancetype _Nonnull)initWithConfig:(CleverTapInstanceConfig *_Nonnull)config redirectDomain:(NSString* _Nonnull)redirectDomain pinnedNSURLSessionDelegate: (CTPinnedNSURLSessionDelegate* _Nonnull)pinnedNSURLSessionDelegate sslCertNames:(NSArray* _Nonnull)sslCertNames {
+- (instancetype _Nonnull)initWithConfig:(CleverTapInstanceConfig * _Nonnull)config redirectDomain:(NSString * _Nullable)redirectDomain pinnedNSURLSessionDelegate:(CTPinnedNSURLSessionDelegate * _Nonnull)pinnedNSURLSessionDelegate sslCertNames:(NSArray * _Nonnull)sslCertNames {
+    return [self initWithConfig:config
+                 redirectDomain:redirectDomain
+     pinnedNSURLSessionDelegate:pinnedNSURLSessionDelegate
+                   sslCertNames:sslCertNames
+                 requestTimeout:CLTAP_REQUEST_TIME_OUT_INTERVAL
+                resourceTimeout:CLTAP_REQUEST_TIME_OUT_INTERVAL];
+}
+
+- (instancetype)initWithConfig:(CleverTapInstanceConfig *)config
+                redirectDomain:(NSString * _Nullable)redirectDomain
+    pinnedNSURLSessionDelegate:(CTPinnedNSURLSessionDelegate *)pinnedNSURLSessionDelegate
+                  sslCertNames:(NSArray *)sslCertNames
+                requestTimeout:(NSTimeInterval)requestTimeout
+               resourceTimeout:(NSTimeInterval)resourceTimeout {
     if ((self = [super init])) {
         self.config = config;
         self.urlSessionDelegate = pinnedNSURLSessionDelegate;
         self.sslCertNames = sslCertNames;
         self.redirectDomain = redirectDomain;
+        self.requestTimeout = requestTimeout;
+        self.resourceTimeout = resourceTimeout;
         [self setUpUrlSession];
-
     }
     return self;
 }
@@ -59,8 +86,8 @@
             @"Content-Type" : @"application/json; charset=utf-8"
         }];
         
-        sc.timeoutIntervalForRequest = CLTAP_REQUEST_TIME_OUT_INTERVAL;
-        sc.timeoutIntervalForResource = CLTAP_REQUEST_TIME_OUT_INTERVAL;
+        sc.timeoutIntervalForRequest = self.requestTimeout;
+        sc.timeoutIntervalForResource = self.resourceTimeout;
         [sc setHTTPShouldSetCookies:NO];
         [sc setRequestCachePolicy:NSURLRequestReloadIgnoringLocalCacheData];
         
@@ -84,12 +111,15 @@
     }
 }
 
-- (void)send:(CTRequest *_Nonnull)ctRequest {
+- (void)send:(CTRequest * _Nonnull)ctRequest {
     NSURLSessionDataTask *task = [_urlSession
                                   dataTaskWithRequest:ctRequest.urlRequest
                                   completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
-            ctRequest.errorBlock(error);
+            if (ctRequest.errorBlock) {
+                ctRequest.errorBlock(error);
+            }
+            return;
         }
         ctRequest.responseBlock(data, response);
     }];
