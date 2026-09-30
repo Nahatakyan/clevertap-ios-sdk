@@ -1,17 +1,26 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.5
 
 import PackageDescription
+
+// Source-based CleverTapSDK (fork). Based on upstream 7.1.1's source manifest;
+// the Swift files added upstream after 7.1.1 live in the separate
+// CleverTapSDKSwift target because SwiftPM targets cannot mix Swift and ObjC.
+let swiftSources = [
+    "Encryption/CTAESGCMCrypt.swift",
+    "Encryption/NetworkEncryptionManager.swift",
+    "InApps/CustomTemplates/SystemAppFunction/CTAppRatingHelper.swift"
+]
 
 let package = Package(
     name: "CleverTapSDK",
     platforms: [
-        .iOS(.v9),
+        .iOS(.v15),
         .watchOS(.v2)
     ],
     products: [
         .library(
             name: "CleverTapSDK",
-            targets: ["CleverTapSDKWrapper"]),
+            targets: ["CleverTapSDK"]),
         .library(
             name: "CleverTapLocation",
             targets: ["CleverTapLocation"]
@@ -21,17 +30,77 @@ let package = Package(
             targets: ["CleverTapWatchOS"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/SDWebImage/SDWebImage.git", from: "5.11.1")
+    ],
     targets: [
-        .binaryTarget(
-            name: "SDWebImageCT",
-            url: "https://github.com/SDWebImage/SDWebImage/releases/download/5.21.0/SDWebImage-dynamic.xcframework.zip",
-            checksum: "e034ea04f5e86866bc3081d009941bd5b2a2ed705b3a06336656484514116638"
+        .target(
+            name: "CleverTapSDKSwift",
+            path: "CleverTapSDK",
+            sources: swiftSources
         ),
-        .binaryTarget(
+        .target(
             name: "CleverTapSDK",
-            url: "https://d1new0xr8otir0.cloudfront.net/CleverTapSDK-7.4.1.xcframework.zip",
-            checksum: "09e8a16759f1d5eb73ae7f638bdf9cc1759e310c711a5c8489fee9cc4ce3c887"
+            dependencies: [
+                "CleverTapSDKSwift",
+                .product(name: "SDWebImage", package: "SDWebImage")
+            ],
+            path: "CleverTapSDK",
+            exclude: [
+                "Info.plist",
+                "tvOS-Info.plist",
+                "ios.modulemap",
+                "tvos.modulemap"
+            ] + swiftSources,
+            resources: [
+                .copy("AmazonRootCA1.cer"),
+                .copy("PrivacyInfo.xcprivacy"),
+                .process("InApps/resources"),
+                .process("Inbox/resources")
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("./"),
+                .headerSearchPath("DisplayUnit/"),
+                .headerSearchPath("DisplayUnit/models"),
+                .headerSearchPath("DisplayUnit/controllers"),
+                .headerSearchPath("FeatureFlags/"),
+                .headerSearchPath("FeatureFlags/models"),
+                .headerSearchPath("FeatureFlags/controllers"),
+                .headerSearchPath("ProductConfig/"),
+                .headerSearchPath("ProductConfig/models"),
+                .headerSearchPath("ProductConfig/controllers"),
+                .headerSearchPath("InApps/"),
+                .headerSearchPath("InApps/Matchers/"),
+                .headerSearchPath("InApps/CustomTemplates/"),
+                .headerSearchPath("InApps/CustomTemplates/SystemAppFunction/"),
+                .headerSearchPath("Inbox/"),
+                .headerSearchPath("Inbox/cells"),
+                .headerSearchPath("Inbox/config"),
+                .headerSearchPath("Inbox/controllers"),
+                .headerSearchPath("Inbox/models"),
+                .headerSearchPath("Inbox/views"),
+                .headerSearchPath("ProductExperiences/"),
+                .headerSearchPath("Session/"),
+                .headerSearchPath("Swizzling/"),
+                .headerSearchPath("FileDownload/"),
+                .headerSearchPath("EventDatabase/"),
+                .headerSearchPath("Encryption/")
+            ],
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("AVKit"),
+                .linkedFramework("CoreData"),
+                .linkedFramework("CoreServices"),
+                .linkedFramework("CoreTelephony", .when(platforms: [.iOS])),
+                .linkedFramework("ImageIO"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("Security"),
+                .linkedFramework("SystemConfiguration"),
+                .linkedFramework("UserNotifications"),
+                .linkedFramework("WebKit"),
+                .linkedLibrary("sqlite3")
+            ]
         ),
         .target(
             name: "CleverTapLocation",
@@ -45,17 +114,6 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("CoreLocation")
-            ]
-        ),
-        .target(
-            name: "CleverTapSDKWrapper",
-            dependencies: [
-                "CleverTapSDK",
-                "SDWebImageCT"
-            ],
-            path: "CleverTapSDKWrapper",
-            linkerSettings: [
-                .linkedLibrary("sqlite3")
             ]
         ),
         .target(
